@@ -8,6 +8,8 @@ import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { LookingGlassWebXRPolyfill, LookingGlassConfig } from "@lookingglass/webxr"
 import { VRButton } from "three/addons/webxr/VRButton.js";
 
+const { createShortcutFromKeyboardEvent, normalizeShortcutString } = globalThis.ShortcutUtils;
+
 // Set up renderer to use full screen
 const renderer = new THREE.WebGLRenderer();
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -882,9 +884,10 @@ window.addEventListener('load', async () => {
 
   document.getElementById('toggleVapi').addEventListener('click', toggleAssistant);
 
-  const assistantShortcut = settings.assistantShortcut;
+  const assistantShortcut = normalizeShortcutString(settings.assistantShortcut);
   document.addEventListener('keydown', (e) => {
-    if (e.key === assistantShortcut) {
+    if (assistantShortcut && createShortcutFromKeyboardEvent(e) === assistantShortcut) {
+      e.preventDefault();
       toggleAssistant();
     }
   });
