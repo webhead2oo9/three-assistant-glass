@@ -132,36 +132,85 @@
                     Voice Assistant
                 </h1>
                 <label class="switch">
-                    <span>
-                        Assistant
-                    </span>
-                    <select id="assistantIDSelect">
-                        <option value="">Loading assistants...</option>
+                    <span>Provider</span>
+                    <select id="assistantProviderSelect">
+                        <option value="vapi">VAPI</option>
+                        <option value="custom">Custom</option>
                     </select>
                 </label>
-                <span id="modelName" style="font-size: 1.2em;">
-                    <img src="icons/sparkles.svg" alt="Flask Icon" style="width: 20px; height: 20px; vertical-align: middle; margin-bottom: 5px;">
-                    <span class="model-text">Loading Model...</span>
-                </span>
-                <br>
-                <span id="voiceInfo" style="font-size: 1.2em;">
-                    <img src="icons/audio-lines.svg" alt="Flask Icon" style="width: 20px; height: 20px; vertical-align: middle; margin-bottom: 5px;">
-                    <span class="voice-text">Loading Voice...</span>
-                </span>
-                <br>
-                <span style="font-size: 1.2em;">
-                    <img src="icons/message-circle-code.svg" alt="Flask Icon" style="width: 20px; height: 20px; vertical-align: middle; margin-bottom: 5px;">
-                    System Message:
+
+                <!-- VAPI section -->
+                <div id="vapiAssistantSection">
+                    <label class="switch">
+                        <span>Assistant</span>
+                        <select id="assistantIDSelect">
+                            <option value="">Loading assistants...</option>
+                        </select>
+                    </label>
+                    <span id="modelName" style="font-size: 1.2em;">
+                        <img src="icons/sparkles.svg" alt="Flask Icon" style="width: 20px; height: 20px; vertical-align: middle; margin-bottom: 5px;">
+                        <span class="model-text">Loading Model...</span>
+                    </span>
                     <br>
-                    <pre id="systemMessage" style="white-space: pre-wrap; word-wrap: break-word;">Loading System Message...</pre>
-                </span>
-                <br>
-                <span style="font-size: 1.2em;">
-                    <img src="icons/message-circle-more.svg" alt="Flask Icon" style="width: 20px; height: 20px; vertical-align: middle; margin-bottom: 5px;">
-                    First Message:
+                    <span id="voiceInfo" style="font-size: 1.2em;">
+                        <img src="icons/audio-lines.svg" alt="Flask Icon" style="width: 20px; height: 20px; vertical-align: middle; margin-bottom: 5px;">
+                        <span class="voice-text">Loading Voice...</span>
+                    </span>
                     <br>
-                    <span id="firstMessage">Loading First Message...</span>
-                </span>
+                    <span style="font-size: 1.2em;">
+                        <img src="icons/message-circle-code.svg" alt="Flask Icon" style="width: 20px; height: 20px; vertical-align: middle; margin-bottom: 5px;">
+                        System Message:
+                        <br>
+                        <pre id="systemMessage" style="white-space: pre-wrap; word-wrap: break-word;">Loading System Message...</pre>
+                    </span>
+                    <br>
+                    <span style="font-size: 1.2em;">
+                        <img src="icons/message-circle-more.svg" alt="Flask Icon" style="width: 20px; height: 20px; vertical-align: middle; margin-bottom: 5px;">
+                        First Message:
+                        <br>
+                        <span id="firstMessage">Loading First Message...</span>
+                    </span>
+                </div>
+
+                <!-- Custom provider section -->
+                <div id="customAssistantSection" style="display: none;">
+                    <div class="input-container">
+                        <label for="customLLMBaseUrl" style="font-size: 1.2em;">LLM Base URL</label>
+                        <div class="input-wrapper">
+                            <input type="text" id="customLLMBaseUrl" placeholder="http://localhost:11434/v1" class="rounded-input">
+                        </div>
+                        <button class="save-button" data-save="customLLMBaseUrl">Save</button>
+                    </div>
+                    <div class="input-container">
+                        <label for="customLLMApiKey" style="font-size: 1.2em;">LLM API Key <span style="font-weight: normal; font-size: 0.85em;">(optional)</span></label>
+                        <div class="input-wrapper">
+                            <input type="password" id="customLLMApiKey" placeholder="sk-..." class="rounded-input">
+                            <button class="toggle-visibility" data-target="customLLMApiKey">
+                                <img src="icons/eye-off.svg" alt="Toggle Visibility" class="input-icon" style="vertical-align: middle;">
+                            </button>
+                        </div>
+                        <button class="save-button" data-save="customLLMApiKey">Save</button>
+                    </div>
+                    <div class="input-container">
+                        <label for="customLLMModel" style="font-size: 1.2em;">Model</label>
+                        <div class="input-wrapper">
+                            <input type="text" id="customLLMModel" placeholder="llama3" class="rounded-input">
+                        </div>
+                        <button class="save-button" data-save="customLLMModel">Save</button>
+                    </div>
+                    <div class="input-container">
+                        <label for="customSystemPrompt" style="font-size: 1.2em;">System Prompt</label>
+                        <textarea id="customSystemPrompt" placeholder="You are a helpful assistant." class="rounded-input" style="width: 100%; min-height: 80px; resize: vertical; font-family: inherit; font-size: 0.95em; padding: 8px; box-sizing: border-box;"></textarea>
+                        <button class="save-button" data-save="customSystemPrompt">Save</button>
+                    </div>
+                    <div class="input-container">
+                        <label for="customFirstMessage" style="font-size: 1.2em;">First Message <span style="font-weight: normal; font-size: 0.85em;">(optional)</span></label>
+                        <div class="input-wrapper">
+                            <input type="text" id="customFirstMessage" placeholder="Hello! How can I help you?" class="rounded-input">
+                        </div>
+                        <button class="save-button" data-save="customFirstMessage">Save</button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -187,7 +236,7 @@
                     <img src="icons/eye-off.svg" alt="Toggle Visibility" class="input-icon" style="vertical-align: middle;">
                 </button>
             </div>
-            <button class="save-button">Save</button>
+            <button class="save-button" data-save="vapiPublicKey">Save</button>
         </div>
         
         <div class="input-container">
@@ -198,7 +247,60 @@
                     <img src="icons/eye-off.svg" alt="Toggle Visibility" class="input-icon">
                 </button>
             </div>
-            <button class="save-button">Save</button>
+            <button class="save-button" data-save="vapiPrivateKey">Save</button>
+        </div>
+
+        <h1>
+            <img src="icons/audio-lines.svg" alt="Custom Endpoints" style="width: 40px; height: 40px; filter: invert(48%) sepia(79%) saturate(376%) hue-rotate(93deg) brightness(88%) contrast(84%); vertical-align: middle; margin-bottom: 5px;">
+            Custom Endpoints
+        </h1>
+
+        <span style="font-size: 1.2em;">
+            <img src="icons/lightbulb.svg" alt="Tip" style="width: 20px; height: 20px; vertical-align: middle; margin-bottom: 5px;">
+            Used when provider is set to Custom in the Characters tab
+        </span>
+        <br><br>
+
+        <p style="font-size: 1.1em; margin-bottom: 0.5em; opacity: 0.8;">Wyoming STT (faster-whisper)</p>
+        <div class="input-container">
+            <label for="wyomingSttHost" style="font-size: 1.2em;">STT Host</label>
+            <div class="input-wrapper">
+                <input type="text" id="wyomingSttHost" placeholder="localhost" class="rounded-input">
+            </div>
+            <button class="save-button" data-save="wyomingSttHost">Save</button>
+        </div>
+
+        <div class="input-container">
+            <label for="wyomingSttPort" style="font-size: 1.2em;">STT Port</label>
+            <div class="input-wrapper">
+                <input type="number" id="wyomingSttPort" placeholder="10300" class="rounded-input">
+            </div>
+            <button class="save-button" data-save="wyomingSttPort">Save</button>
+        </div>
+
+        <p style="font-size: 1.1em; margin-bottom: 0.5em; opacity: 0.8; margin-top: 1em;">Wyoming TTS (Piper)</p>
+        <div class="input-container">
+            <label for="wyomingTtsHost" style="font-size: 1.2em;">TTS Host</label>
+            <div class="input-wrapper">
+                <input type="text" id="wyomingTtsHost" placeholder="localhost" class="rounded-input">
+            </div>
+            <button class="save-button" data-save="wyomingTtsHost">Save</button>
+        </div>
+
+        <div class="input-container">
+            <label for="wyomingTtsPort" style="font-size: 1.2em;">TTS Port</label>
+            <div class="input-wrapper">
+                <input type="number" id="wyomingTtsPort" placeholder="10200" class="rounded-input">
+            </div>
+            <button class="save-button" data-save="wyomingTtsPort">Save</button>
+        </div>
+
+        <div class="input-container">
+            <label for="wyomingTtsVoice" style="font-size: 1.2em;">TTS Voice</label>
+            <div class="input-wrapper">
+                <input type="text" id="wyomingTtsVoice" placeholder="en_US-lessac-medium" class="rounded-input">
+            </div>
+            <button class="save-button" data-save="wyomingTtsVoice">Save</button>
         </div>
     </div>
     

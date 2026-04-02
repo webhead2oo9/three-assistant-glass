@@ -63,6 +63,21 @@ const blinkDuration = 0.17; // Duration of a blink in seconds
 
 let vapi; // Declare vapi at the top level
 
+// Custom provider state
+const customProvider = {
+  sttDataWs: null,
+  sttControlWs: null,
+  ttsWs: null,
+  audioCtx: null,
+  micStream: null,
+  scriptProcessor: null,
+  analyser: null,
+  ttsAudioQueue: [],
+  ttsPlaying: false,
+  chatHistory: [],
+  settings: {}
+};
+
 // Add this function to fetch settings
 async function fetchSettings() {
     try {
@@ -675,6 +690,16 @@ function animate() {
   if (currentVrm) {
     updateBlink(deltaTime);
     currentVrm.update(deltaTime);
+
+    // Custom provider: drive mouth animation from TTS playback volume
+    if (customProvider.analyser && customProvider.ttsPlaying) {
+      const data = new Uint8Array(customProvider.analyser.frequencyBinCount);
+      customProvider.analyser.getByteTimeDomainData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) sum += (data[i] - 128) ** 2;
+      const rms = Math.sqrt(sum / data.length) / 128;
+      currentVrm.expressionManager.setValue('aa', Math.min(rms * 3, 1));
+    }
   }
 
   // Update controls only if freeCamera is enabled
@@ -832,7 +857,7 @@ async function initializeVapi() {
 
 // Add this function to send system messages to Vapi
 function sendSystemMessageToVapi(content) {
-  if (vapiActive && vapi) {
+  if (assistantActive && vapi) {
     vapi.send({
       type: "add-message",
       message: {
@@ -845,18 +870,22 @@ function sendSystemMessageToVapi(content) {
 
 // Update the socket.onmessage function
 window.addEventListener('load', async () => {
-  initializeVapi();
-
-  document.getElementById('toggleVapi').addEventListener('click', toggleVapi);
-
-  // Fetch the assistantShortcut from settings
   const response = await fetch('/api/settings');
   const settings = await response.json();
-  const assistantShortcut = settings.assistantShortcut;
 
+  const provider = settings.assistantProvider || 'vapi';
+  if (provider === 'vapi') {
+    initializeVapi();
+  } else {
+    initializeCustomProvider(settings);
+  }
+
+  document.getElementById('toggleVapi').addEventListener('click', toggleAssistant);
+
+  const assistantShortcut = settings.assistantShortcut;
   document.addEventListener('keydown', (e) => {
     if (e.key === assistantShortcut) {
-      toggleVapi();
+      toggleAssistant();
     }
   });
 
@@ -879,27 +908,37 @@ window.addEventListener('load', async () => {
   };
 });
 
-let vapiActive = false;
+let assistantActive = false;
 
-function toggleVapi() {
+async function toggleAssistant() {
   const toggleButton = document.getElementById('toggleVapi');
-  
-  if (vapiActive) {
-    stopVapi();
+  const settings = await fetch('/api/settings').then(r => r.json());
+  const provider = settings.assistantProvider || 'vapi';
+
+  if (assistantActive) {
+    if (provider === 'vapi') {
+      stopVapi();
+    } else {
+      stopCustom();
+    }
     toggleButton.textContent = '▶️';
-    vapiActive = false;
+    assistantActive = false;
   } else {
-    startVapi();
+    if (provider === 'vapi') {
+      startVapi();
+    } else {
+      await startCustom();
+    }
     toggleButton.textContent = '🛑';
-    vapiActive = true;
+    assistantActive = true;
   }
 }
 
-// Add these functions to start and stop Vapi
+// Vapi start/stop
 function startVapi() {
   if (vapi && assistantId) {
     vapi.start(assistantId);
-    updateVrmNameDisplay('Character'); // Reset to Character when starting
+    updateVrmNameDisplay('Character');
   } else {
     console.error('Vapi not initialized or assistantID not set');
   }
@@ -911,6 +950,240 @@ function stopVapi() {
   } else {
     console.error('Vapi not initialized');
   }
+}
+
+// ─── Custom provider ──────────────────────────────────────────────────────────
+
+function initializeCustomProvider(settings) {
+  customProvider.settings = settings;
+}
+
+async function startCustom() {
+  const s = customProvider.settings;
+
+  // Initialize chat history with system prompt
+  customProvider.chatHistory = [];
+  if (s.customSystemPrompt) {
+    customProvider.chatHistory.push({ role: 'system', content: s.customSystemPrompt });
+  }
+
+  // Get microphone
+  try {
+    customProvider.micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (err) {
+    console.error('Microphone access denied:', err);
+    updateTextMesh('Microphone access denied.');
+    return;
+  }
+
+  // AudioContext at 16 kHz for STT
+  customProvider.audioCtx = new AudioContext({ sampleRate: 16000 });
+  // Resume explicitly — AudioContext can auto-suspend when created after an await
+  customProvider.audioCtx.resume().then(() =>
+    console.log('[STT] AudioContext state:', customProvider.audioCtx.state)
+  );
+  const source = customProvider.audioCtx.createMediaStreamSource(customProvider.micStream);
+  const processor = customProvider.audioCtx.createScriptProcessor(4096, 1, 1);
+  customProvider.scriptProcessor = processor;
+
+  // Connect STT WebSocket (routes through server.mjs → Wyoming TCP)
+  const sttDataWs = new WebSocket('ws://localhost:3000/wyoming/stt');
+  customProvider.sttDataWs = sttDataWs;
+
+  // Connect TTS WebSocket (routes through server.mjs → Wyoming TCP)
+  const ttsWs = new WebSocket('ws://localhost:3000/wyoming/tts');
+  customProvider.ttsWs = ttsWs;
+  customProvider.ttsAudioQueue = [];
+  customProvider.ttsPlaying = false;
+
+  // Set up TTS AudioContext analyser for mouth animation
+  const ttsAudioCtx = new AudioContext();
+  const analyser = ttsAudioCtx.createAnalyser();
+  analyser.fftSize = 256;
+  analyser.connect(ttsAudioCtx.destination);
+  customProvider.ttsAudioCtx = ttsAudioCtx;
+  customProvider.analyser = analyser;
+
+  // TTS receive handler
+  ttsWs.onmessage = async (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.audioOutput && msg.audioOutput.audio) {
+        const raw = atob(msg.audioOutput.audio);
+        const bytes = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+        customProvider.ttsAudioQueue.push(bytes.buffer);
+        if (!customProvider.ttsPlaying) playNextTTSChunk();
+      }
+    } catch (e) {
+      console.error('TTS message parse error:', e);
+    }
+  };
+
+  ttsWs.onerror = (err) => console.error('TTS WebSocket error:', err);
+
+  // STT receive handler
+  sttDataWs.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.type === 'realtime') {
+        updateTextMesh(msg.text);
+        updateVrmNameDisplay('User');
+      } else if (msg.type === 'fullSentence') {
+        customProvider.chatHistory.push({ role: 'user', content: msg.text });
+        updateTextMesh(msg.text);
+        updateVrmNameDisplay('User');
+        callLLM();
+      }
+    } catch (e) {
+      console.error('STT message parse error:', e);
+    }
+  };
+
+  sttDataWs.onerror = (err) => console.error('STT WebSocket error:', err);
+
+  // Stream mic audio to STT once connected
+  sttDataWs.onopen = () => {
+    console.log('[STT] WebSocket open, starting audio stream');
+    const metaJson = JSON.stringify({ sampleRate: 16000 });
+    const metaBytes = new TextEncoder().encode(metaJson);
+    let frameCount = 0;
+
+    processor.onaudioprocess = (e) => {
+      if (sttDataWs.readyState !== WebSocket.OPEN) return;
+      const float32 = e.inputBuffer.getChannelData(0);
+      const int16 = new Int16Array(float32.length);
+      for (let i = 0; i < float32.length; i++) {
+        int16[i] = Math.max(-32768, Math.min(32767, float32[i] * 32768));
+      }
+      const pcmBytes = new Uint8Array(int16.buffer);
+      const buf = new ArrayBuffer(4 + metaBytes.byteLength + pcmBytes.byteLength);
+      const view = new DataView(buf);
+      view.setUint32(0, metaBytes.byteLength, true); // little-endian length
+      new Uint8Array(buf, 4, metaBytes.byteLength).set(metaBytes);
+      new Uint8Array(buf, 4 + metaBytes.byteLength).set(pcmBytes);
+      sttDataWs.send(buf);
+      frameCount++;
+      if (frameCount === 1 || frameCount % 50 === 0) {
+        console.log(`[STT] sent frame #${frameCount} (${pcmBytes.byteLength} PCM bytes)`);
+      }
+    };
+
+    // Silent gain node connected to destination keeps the audio graph alive
+    // without playing mic audio through speakers
+    const silentGain = customProvider.audioCtx.createGain();
+    silentGain.gain.value = 0;
+    silentGain.connect(customProvider.audioCtx.destination);
+    source.connect(processor);
+    processor.connect(silentGain);
+  };
+
+  // Speak first message if configured
+  if (s.customFirstMessage) {
+    ttsWs.onopen = () => speakText(s.customFirstMessage);
+  }
+
+  updateTextMesh('Custom assistant ready. Listening...');
+  updateVrmNameDisplay('Character');
+}
+
+function stopCustom() {
+  if (customProvider.sttDataWs) { customProvider.sttDataWs.close(); customProvider.sttDataWs = null; }
+  if (customProvider.ttsWs) { customProvider.ttsWs.close(); customProvider.ttsWs = null; }
+  if (customProvider.scriptProcessor) { customProvider.scriptProcessor.disconnect(); customProvider.scriptProcessor = null; }
+  if (customProvider.micStream) { customProvider.micStream.getTracks().forEach(t => t.stop()); customProvider.micStream = null; }
+  if (customProvider.audioCtx) { customProvider.audioCtx.close(); customProvider.audioCtx = null; }
+  if (customProvider.ttsAudioCtx) { customProvider.ttsAudioCtx.close(); customProvider.ttsAudioCtx = null; customProvider.analyser = null; }
+  customProvider.ttsAudioQueue = [];
+  customProvider.ttsPlaying = false;
+  customProvider.chatHistory = [];
+  updateTextMesh('Session ended.');
+  if (currentVrm) currentVrm.expressionManager.setValue('aa', 0);
+}
+
+async function callLLM() {
+  const s = customProvider.settings;
+  const url = (s.customLLMBaseUrl || 'http://localhost:11434/v1') + '/chat/completions';
+  const headers = { 'Content-Type': 'application/json' };
+  if (s.customLLMApiKey) headers['Authorization'] = 'Bearer ' + s.customLLMApiKey;
+
+  let fullResponse = '';
+  updateVrmNameDisplay('Character');
+
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        model: s.customLLMModel || '',
+        messages: customProvider.chatHistory,
+        stream: true
+      })
+    });
+
+    if (!res.ok) {
+      const err = await res.text();
+      updateTextMesh('LLM error: ' + err);
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      for (const line of chunk.split('\n')) {
+        const trimmed = line.replace(/^data: /, '').trim();
+        if (!trimmed || trimmed === '[DONE]') continue;
+        try {
+          const json = JSON.parse(trimmed);
+          const delta = json.choices?.[0]?.delta?.content;
+          if (delta) {
+            fullResponse += delta;
+            updateTextMesh(fullResponse);
+          }
+        } catch (_) {}
+      }
+    }
+
+    customProvider.chatHistory.push({ role: 'assistant', content: fullResponse });
+    speakText(fullResponse);
+  } catch (err) {
+    console.error('LLM call failed:', err);
+    updateTextMesh('LLM connection error: ' + err.message);
+  }
+}
+
+function speakText(text) {
+  if (customProvider.ttsWs && customProvider.ttsWs.readyState === WebSocket.OPEN) {
+    customProvider.ttsWs.send(text);
+  } else {
+    console.warn('TTS WebSocket not open');
+  }
+}
+
+function playNextTTSChunk() {
+  if (customProvider.ttsAudioQueue.length === 0) {
+    customProvider.ttsPlaying = false;
+    if (currentVrm) currentVrm.expressionManager.setValue('aa', 0);
+    return;
+  }
+  customProvider.ttsPlaying = true;
+  const buffer = customProvider.ttsAudioQueue.shift();
+  customProvider.ttsAudioCtx.decodeAudioData(buffer, (audioBuffer) => {
+    // Guard: context may have been closed if the session was stopped mid-playback
+    if (!customProvider.ttsAudioCtx || customProvider.ttsAudioCtx.state === 'closed') return;
+    const source = customProvider.ttsAudioCtx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(customProvider.analyser);
+    source.onended = playNextTTSChunk;
+    source.start();
+  }, (err) => {
+    console.error('Audio decode error:', err);
+    playNextTTSChunk();
+  });
 }
 
 let textMesh;

@@ -99,6 +99,19 @@ async function selectCharacter(name) {
     }
 }
 
+// Function to show/hide provider-specific UI sections
+function updateProviderUI(provider) {
+    const vapiSection = document.getElementById('vapiAssistantSection');
+    const customSection = document.getElementById('customAssistantSection');
+    if (provider === 'custom') {
+        vapiSection.style.display = 'none';
+        customSection.style.display = 'block';
+    } else {
+        vapiSection.style.display = 'block';
+        customSection.style.display = 'none';
+    }
+}
+
 // Function to load settings
 async function loadSettings() {
     const response = await fetch('/api/settings');
@@ -131,6 +144,25 @@ async function loadSettings() {
     // Load the assistant shortcut
     const shortcutInput = document.getElementById('assistantShortcut');
     shortcutInput.value = settings.assistantShortcut || '';
+
+    // Load provider setting
+    const provider = settings.assistantProvider || 'vapi';
+    document.getElementById('assistantProviderSelect').value = provider;
+    updateProviderUI(provider);
+
+    // Load custom provider settings
+    document.getElementById('customLLMBaseUrl').value = settings.customLLMBaseUrl || '';
+    document.getElementById('customLLMApiKey').value = settings.customLLMApiKey || '';
+    document.getElementById('customLLMModel').value = settings.customLLMModel || '';
+    document.getElementById('customSystemPrompt').value = settings.customSystemPrompt || '';
+    document.getElementById('customFirstMessage').value = settings.customFirstMessage || '';
+
+    // Load Wyoming endpoint settings
+    document.getElementById('wyomingSttHost').value = settings.wyomingSttHost || '';
+    document.getElementById('wyomingSttPort').value = settings.wyomingSttPort || '';
+    document.getElementById('wyomingTtsHost').value = settings.wyomingTtsHost || '';
+    document.getElementById('wyomingTtsPort').value = settings.wyomingTtsPort || '';
+    document.getElementById('wyomingTtsVoice').value = settings.wyomingTtsVoice || '';
 }
 
 // Function to save settings
@@ -148,8 +180,12 @@ async function saveSettings(key, value) {
 async function loadAssistants() {
     try {
         const settings = await fetch('/api/settings').then(res => res.json());
+
+        // Only load VAPI assistants when using the VAPI provider
+        if ((settings.assistantProvider || 'vapi') !== 'vapi') return;
+
         const vapiPrivateKey = settings.vapiPrivateKey;
-        
+
         if (!vapiPrivateKey) {
             console.error('Vapi private key not found in settings');
             return;
@@ -230,9 +266,22 @@ clipboardAccessToggle.addEventListener('change', () => {
 
 document.querySelectorAll('.save-button').forEach(button => {
     button.addEventListener('click', () => {
-        const input = button.previousElementSibling.querySelector('input');
-        saveSettings(input.id === 'publicKey' ? 'vapiPublicKey' : 'vapiPrivateKey', input.value);
+        // Added data-save attribute to all save buttons
+        const saveKey = button.getAttribute('data-save');
+        if (saveKey) {
+            const el = document.getElementById(saveKey);
+            saveSettings(saveKey, el.value);
+            return;
+        }
     });
+});
+
+// Provider selector
+document.getElementById('assistantProviderSelect').addEventListener('change', (e) => {
+    const provider = e.target.value;
+    saveSettings('assistantProvider', provider);
+    updateProviderUI(provider);
+    if (provider === 'vapi') loadAssistants();
 });
 
 // Event listeners for all toggles and selects
