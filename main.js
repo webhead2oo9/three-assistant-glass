@@ -50,7 +50,13 @@ let currentSettings = {};
 let currentVrm = undefined;
 let currentAnimationUrl = undefined;
 let currentMixer = undefined;
+let currentAction = undefined;
+let currentFinishedHandler = undefined;
+let animationLoadRequestId = 0;
 let currentAnimationName = 'idleFemale.fbx'; // Start with idle animation name
+
+const ANIMATION_CROSSFADE_SECONDS = 0.4;
+const ANIMATION_CROSSFADE_WARP = true;
 
 let currentVrmName = 'Loading VRM...';
 let vrmNameMesh;
@@ -346,35 +352,102 @@ async function loadVRM(modelUrl, modelName) {
 
 // mixamo animation
 function loadFBX(animationUrl, playOnce = false) {
-    currentAnimationUrl = animationUrl;
-    currentAnimationName = animationUrl.split('/').pop();
+    if (!currentVrm) {
+        console.warn('VRM not loaded yet. Animation will be applied when VRM is ready.');
+        return;
+    }
 
-    if (currentVrm) {
-        currentVrm.humanoid.resetNormalizedPose();
-        currentMixer = new THREE.AnimationMixer(currentVrm.scene);
+    const vrm = currentVrm;
+    const requestId = ++animationLoadRequestId;
+    const requestedAnimationName = animationUrl.split('/').pop();
+    const needsNewMixer = !currentMixer || currentMixer.getRoot() !== vrm.scene;
 
-        loadMixamoAnimation(animationUrl, currentVrm).then((clip) => {
-            const action = currentMixer.clipAction(clip);
-            
+    if (needsNewMixer) {
+        if (currentFinishedHandler && currentMixer) {
+            currentMixer.removeEventListener('finished', currentFinishedHandler);
+            currentFinishedHandler = undefined;
+        }
+
+        currentMixer = new THREE.AnimationMixer(vrm.scene);
+        currentAction = undefined;
+        vrm.humanoid?.resetNormalizedPose?.();
+    } else if (currentFinishedHandler) {
+        currentMixer.removeEventListener('finished', currentFinishedHandler);
+        currentFinishedHandler = undefined;
+    }
+
+    const mixer = currentMixer;
+
+    loadMixamoAnimation(animationUrl, vrm)
+        .then(async (clip) => {
+            if (requestId !== animationLoadRequestId || vrm !== currentVrm || mixer.getRoot() !== vrm.scene) {
+                return;
+            }
+
+            const previousAction = currentAction;
+            const newAction = mixer.clipAction(clip);
+
+            newAction.reset();
+            newAction.enabled = true;
+            newAction.setEffectiveTimeScale(1);
+            newAction.setEffectiveWeight(1);
+
             if (playOnce) {
-                action.setLoop(THREE.LoopOnce);
-                action.clampWhenFinished = true;
-                action.play();
-
-                // Switch to idle animation when greeting finishes
-                action.onFinished = async () => {
-                    const idleAnimationUrl = await getCurrentIdleAnimation();
-                    loadFBX(idleAnimationUrl);
-                };
+                newAction.setLoop(THREE.LoopOnce, 1);
+                newAction.clampWhenFinished = true;
             } else {
-                action.play();
+                newAction.setLoop(THREE.LoopRepeat, Infinity);
+                newAction.clampWhenFinished = false;
+            }
+
+            newAction.play();
+
+            if (previousAction && previousAction !== newAction) {
+                previousAction.crossFadeTo(
+                    newAction,
+                    ANIMATION_CROSSFADE_SECONDS,
+                    ANIMATION_CROSSFADE_WARP
+                );
+            }
+
+            currentAction = newAction;
+            currentAnimationUrl = animationUrl;
+            currentAnimationName = requestedAnimationName;
+
+            if (playOnce) {
+                const finishedAction = newAction;
+
+                currentFinishedHandler = async (event) => {
+                    if (event.action !== finishedAction) {
+                        return;
+                    }
+
+                    mixer.removeEventListener('finished', currentFinishedHandler);
+                    currentFinishedHandler = undefined;
+
+                    if (requestId !== animationLoadRequestId || currentAction !== finishedAction) {
+                        return;
+                    }
+
+                    const idleAnimationUrl = await getCurrentIdleAnimation();
+
+                    if (requestId !== animationLoadRequestId || currentAction !== finishedAction) {
+                        return;
+                    }
+
+                    loadFBX(idleAnimationUrl, false);
+                };
+
+                mixer.addEventListener('finished', currentFinishedHandler);
             }
 
             updateAnimationDropdown();
+        })
+        .catch((error) => {
+            if (requestId === animationLoadRequestId) {
+                console.error('Failed to load animation:', animationUrl, error);
+            }
         });
-    } else {
-        console.warn('VRM not loaded yet. Animation will be applied when VRM is ready.');
-    }
 }
 
 // Add this function to update the animation dropdown
