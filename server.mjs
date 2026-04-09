@@ -128,7 +128,7 @@ app.post('/api/settings', express.json(), async (req, res) => {
     
     await fs.writeFile(settingsPath, JSON.stringify(currentSettings, null, 2));
     settings = currentSettings;
-    res.json({ success: true });
+    res.json({ success: true, settings: currentSettings });
   } catch (error) {
     console.error('Error updating settings:', error);
     res.status(500).json({ error: 'Unable to update settings' });

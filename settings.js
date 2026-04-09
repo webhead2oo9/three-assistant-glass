@@ -10,6 +10,8 @@ document.querySelectorAll('.settings-tab-button').forEach(button => {
     });
 });
 
+const { createShortcutFromKeyboardEvent, normalizeShortcutString } = globalThis.ShortcutUtils;
+
 const clipboardAccessToggle = document.getElementById('clipboardAccessToggle');
 
 fetch('/api/settings/clipboard')
@@ -143,7 +145,7 @@ async function loadSettings() {
 
     // Load the assistant shortcut
     const shortcutInput = document.getElementById('assistantShortcut');
-    shortcutInput.value = settings.assistantShortcut || '';
+    shortcutInput.value = normalizeShortcutString(settings.assistantShortcut || '');
 
     // Load provider setting
     const provider = settings.assistantProvider || 'vapi';
@@ -163,23 +165,32 @@ async function loadSettings() {
     document.getElementById('wyomingTtsHost').value = settings.wyomingTtsHost || '';
     document.getElementById('wyomingTtsPort').value = settings.wyomingTtsPort || '';
     document.getElementById('wyomingTtsVoice').value = settings.wyomingTtsVoice || '';
+
+    return settings;
 }
 
 // Function to save settings
 async function saveSettings(key, value) {
-    await fetch('/api/settings', {
+    const response = await fetch('/api/settings', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
         },
         body: JSON.stringify({ [key]: value }),
     });
+
+    if (!response.ok) {
+        throw new Error(`Failed to save setting: ${key}`);
+    }
+
+    const data = await response.json();
+    return data.settings || null;
 }
 
 // Function to load assistants from Vapi
-async function loadAssistants() {
+async function loadAssistants(settingsOverride) {
     try {
-        const settings = await fetch('/api/settings').then(res => res.json());
+        const settings = settingsOverride || await fetch('/api/settings').then(res => res.json());
 
         // Only load VAPI assistants when using the VAPI provider
         if ((settings.assistantProvider || 'vapi') !== 'vapi') return;
@@ -243,18 +254,16 @@ async function updateAssistantInfo(assistantID, vapiPrivateKey) {
 // Event listener for assistant selection
 document.getElementById('assistantIDSelect').addEventListener('change', async (e) => {
     const assistantID = e.target.value;
-    await saveSettings('assistantID', assistantID);
-
-    const settings = await fetch('/api/settings').then(res => res.json());
+    const settings = await saveSettings('assistantID', assistantID);
     await updateAssistantInfo(assistantID, settings.vapiPrivateKey);
 });
 
 // Modify the initializePage function
 async function initializePage() {
     await loadAnimations();
-    await loadSettings();
+    const settings = await loadSettings();
     await loadCharacters();
-    await loadAssistants();
+    await loadAssistants(settings);
 }
 
 // Call initializePage when the page loads
@@ -277,11 +286,13 @@ document.querySelectorAll('.save-button').forEach(button => {
 });
 
 // Provider selector
-document.getElementById('assistantProviderSelect').addEventListener('change', (e) => {
+document.getElementById('assistantProviderSelect').addEventListener('change', async (e) => {
     const provider = e.target.value;
-    saveSettings('assistantProvider', provider);
     updateProviderUI(provider);
-    if (provider === 'vapi') loadAssistants();
+    const settings = await saveSettings('assistantProvider', provider);
+    if (provider === 'vapi') {
+        await loadAssistants(settings);
+    }
 });
 
 // Event listeners for all toggles and selects
@@ -353,21 +364,16 @@ document.getElementById('settingsIconToggle').addEventListener('change', (e) => 
 });
 
 // Add this new function to handle keyboard shortcut input
-function handleShortcutInput(event) {
+async function handleShortcutInput(event) {
     event.preventDefault();
     const shortcutInput = document.getElementById('assistantShortcut');
-    
-    const key = event.key;
-    const ctrl = event.ctrlKey ? 'Ctrl+' : '';
-    const alt = event.altKey ? 'Alt+' : '';
-    const shift = event.shiftKey ? 'Shift+' : '';
-    
-    if (key === 'Control' || key === 'Alt' || key === 'Shift') return;
-    
-    const shortcut = `${ctrl}${alt}${shift}${key}`;
+
+    const shortcut = createShortcutFromKeyboardEvent(event);
+    if (!shortcut) return;
+
     shortcutInput.value = shortcut;
-    
-    saveSettings('assistantShortcut', shortcut);
+
+    await saveSettings('assistantShortcut', shortcut);
 }
 
 // Add event listeners after the page loads
