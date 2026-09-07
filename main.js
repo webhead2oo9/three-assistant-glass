@@ -45,7 +45,7 @@ const light = new THREE.DirectionalLight(0xffffff, Math.PI);
 light.position.set(1.0, 1.0, 1.0).normalize();
 scene.add(light);
 
-let defaultModelUrl = 'characters/Character.vrm';
+let defaultModelUrl = 'characters/AvatarSample_A.vrm'; // ships with the repo; overridden by settings.characterName
 let currentSettings = {};
 
 let currentVrm = undefined;
