@@ -11,7 +11,7 @@ async function until(predicate) {
 
 class Client extends EventEmitter {
   child = {};
-  cwd = '/isolated/voice-workspace';
+  cwd = require('node:fs').realpathSync(require('node:os').tmpdir());
   calls = [];
   signedIn = true;
   handle = null;
@@ -28,6 +28,9 @@ class Client extends EventEmitter {
     if (method === 'thread/start') return { thread: { id: 'thread-1' } };
     if (method === 'thread/realtime/start') {
       this.emit('notification', { method: 'thread/realtime/sdp', params: { threadId: params.threadId, sdp: 'v=0\r\nanswer' } });
+    }
+    if (method === 'thread/realtime/stop') {
+      this.emit('notification', { method: 'thread/realtime/closed', params: { threadId: params.threadId, reason: 'Stopped' } });
     }
     return {};
   }
@@ -129,7 +132,7 @@ test('managed login reports completion errors and supports cancellation', async 
   assert.ok(h.client.calls.some(c => c.method === 'account/login/cancel' && c.params.loginId === 'login-1'));
 });
 
-test('voice creates an isolated thread, negotiates WebRTC and forwards only voice events', async t => {
+test('voice creates a task-capable thread and negotiates native WebRTC handoff', async t => {
   const h = await harness(t, { getSettings: () => ({ codexInstructions: 'Speak as a friendly character.', codexModel: 'gpt-live-1-codex', codexVoice: 'juniper' }) });
   const { id, events } = await allocate(h);
   const result = await h.request(`/sessions/${id}/start`, { sdp: 'v=0\r\noffer' });
@@ -139,16 +142,21 @@ test('voice creates an isolated thread, negotiates WebRTC and forwards only voic
   assert.equal(thread.cwd, h.client.cwd);
   assert.equal(thread.ephemeral, true);
   assert.equal(thread.config['features.realtime_conversation'], true);
-  assert.equal(thread.sandbox, 'read-only');
-  assert.deepEqual(thread.environments, []);
+  assert.equal(thread.sandbox, 'workspace-write');
+  assert.equal(thread.environments, undefined);
+  assert.equal(thread.approvalsReviewer, 'user');
+  assert.equal(thread.baseInstructions, undefined);
   const start = h.client.calls.find(c => c.method === 'thread/realtime/start').params;
   assert.deepEqual(start.transport, { type: 'webrtc', sdp: 'v=0\r\noffer' });
   assert.equal(start.version, 'v3');
   assert.equal(start.includeStartupContext, false);
-  assert.equal(start.prompt, 'Speak as a friendly character.');
+  assert.equal(start.clientManagedHandoffs, true);
+  assert.match(start.prompt, /Speak as a friendly character/);
+  assert.match(start.prompt, /Delegate actions/);
   assert.equal(start.model, 'gpt-live-1-codex');
   assert.equal(start.voice, 'juniper');
-  h.client.emit('notification', { method: 'item/agentMessage/delta', params: { threadId: 'thread-1', delta: 'not a voice event' } });
+  h.client.emit('notification', { method: 'item/agentMessage/delta', params: { threadId: 'thread-1', itemId: 'item-1', delta: 'Working on it' } });
+  assert.deepEqual(await events.next(), { type: 'codex/task/output', itemId: 'item-1', text: 'Working on it' });
   h.client.emit('notification', { method: 'thread/realtime/transcript/delta', params: { threadId: 'another-thread', role: 'user', delta: 'unrelated' } });
   h.client.emit('notification', { method: 'thread/realtime/transcript/delta', params: { threadId: 'thread-1', role: 'assistant', delta: 'Hello' } });
   assert.deepEqual(await events.next(), { type: 'thread/realtime/transcript/delta', threadId: 'thread-1', role: 'assistant', delta: 'Hello' });
@@ -156,7 +164,7 @@ test('voice creates an isolated thread, negotiates WebRTC and forwards only voic
   assert.deepEqual(h.client.calls.at(-1), { method: 'thread/realtime/appendText', params: { threadId: 'thread-1', role: 'developer', text: 'Clipboard context' } });
 });
 
-test('terminal backing-agent failures reach the browser and release voice, while retries stay connected', async t => {
+test('backing-agent failures reach the task panel without disconnecting voice', async t => {
   const h = await harness(t);
   const { id, events } = await allocate(h);
   await h.request(`/sessions/${id}/start`, { sdp: 'v=0\r\noffer' });
@@ -171,9 +179,9 @@ test('terminal backing-agent failures reach the browser and release voice, while
   h.client.emit('notification', { method: 'error', params: {
     threadId: 'thread-1', willRetry: false, error: { message: 'Voice handoff failed' },
   } });
-  assert.deepEqual(await events.next(), { type: 'error', message: 'Voice handoff failed' });
-  await until(() => h.client.calls.some(c => c.method === 'thread/unsubscribe'));
-  assert.equal((await h.request(`/sessions/${id}/context`, { text: 'After failure' })).status, 404);
+  assert.deepEqual(await events.next(), { type: 'codex/task/error', message: 'Voice handoff failed' });
+  assert.equal(h.client.calls.some(c => c.method === 'thread/unsubscribe'), false);
+  assert.equal((await h.request(`/sessions/${id}/context`, { text: 'After failure' })).status, 200);
 });
 
 test('one browser owns voice, and closing its stream releases the Codex thread', async t => {
@@ -225,4 +233,124 @@ test('logout stops voice and signs out only through Codex account RPCs', async t
   const methods = h.client.calls.map(c => c.method);
   assert.ok(methods.indexOf('thread/realtime/stop') < methods.indexOf('account/logout'));
   assert.equal((await h.request('/account')).body.account, null);
+});
+
+test('task approvals are scoped, validated, and answered exactly once', async t => {
+  const h = await harness(t);
+  const { id, events } = await allocate(h);
+  await h.request(`/sessions/${id}/start`, { sdp: 'v=0\r\noffer' });
+  await events.next();
+  h.client.emit('notification', { method: 'turn/started', params: { threadId: 'thread-1', turn: { id: 'turn-1' } } });
+  assert.equal((await events.next()).status, 'working');
+  const replies = [];
+  h.client.emit('request', { id: 101, method: 'item/commandExecution/requestApproval', params: {
+    threadId: 'thread-1', turnId: 'turn-1', itemId: 'cmd', command: 'npm test', cwd: h.client.cwd,
+    availableDecisions: ['accept', 'decline'],
+  } }, result => replies.push(result));
+  const approval = await events.next();
+  assert.equal(approval.kind, 'command');
+  assert.equal(approval.details.command, 'npm test');
+  assert.equal(replies.length, 0);
+  const url = `/sessions/${id}/tasks/requests/${approval.requestId}`;
+  assert.equal((await h.request(url, { decision: 'acceptForSession' })).status, 400);
+  assert.equal((await h.request(url, { decision: 'accept' }, { Origin: 'https://other.example' })).status, 403);
+  assert.equal((await h.request(`/sessions/wrong/tasks/requests/${approval.requestId}`, { decision: 'accept' })).status, 404);
+  assert.equal((await h.request(url, { decision: 'accept' })).status, 200);
+  assert.equal((await events.next()).type, 'codex/task/requestResolved');
+  assert.equal((await h.request(url, { decision: 'accept' })).status, 409);
+  assert.deepEqual(replies, [{ decision: 'accept' }]);
+});
+
+test('task cancellation interrupts the turn, dismisses questions, and leaves voice connected', async t => {
+  const h = await harness(t), { id, events } = await allocate(h);
+  await h.request(`/sessions/${id}/start`, { sdp: 'v=0\r\noffer' }); await events.next();
+  h.client.emit('notification', { method: 'turn/started', params: { threadId: 'thread-1', turn: { id: 'turn-1' } } });
+  await events.next();
+  const replies = [];
+  h.client.emit('request', { id: 'question', method: 'item/tool/requestUserInput', params: {
+    threadId: 'thread-1', turnId: 'turn-1', questions: [{ id: 'folder', question: 'Which folder?' }],
+  } }, result => replies.push(result));
+  await events.next();
+  assert.equal((await h.request(`/sessions/${id}/tasks/cancel`, {})).status, 200);
+  assert.deepEqual(h.client.calls.at(-1), { method: 'turn/interrupt', params: { threadId: 'thread-1', turnId: 'turn-1' } });
+  assert.deepEqual(replies, [{ answers: {} }]);
+  assert.equal(h.client.calls.some(c => c.method === 'thread/realtime/stop'), false);
+  assert.equal((await h.request(`/sessions/${id}/context`, { text: 'Keep talking' })).status, 200);
+  assert.equal((await h.request(`/sessions/${id}/tasks/cancel`, {})).status, 409);
+});
+
+test('stopping voice interrupts running work and rejects pending approvals', async t => {
+  const h = await harness(t), { id, events } = await allocate(h);
+  await h.request(`/sessions/${id}/start`, { sdp: 'v=0\r\noffer' }); await events.next();
+  h.client.emit('notification', { method: 'turn/started', params: { threadId: 'thread-1', turn: { id: 'turn-stop' } } });
+  await events.next();
+  const replies = [];
+  h.client.emit('request', { id: 'cmd', method: 'item/commandExecution/requestApproval', params: {
+    threadId: 'thread-1', turnId: 'turn-stop', command: 'test',
+  } }, result => replies.push(result));
+  await events.next();
+  await h.request(`/sessions/${id}/stop`, {});
+  const methods = h.client.calls.map(c => c.method);
+  assert.ok(methods.indexOf('thread/realtime/stop') < methods.indexOf('turn/interrupt'));
+  assert.ok(methods.indexOf('turn/interrupt') < methods.indexOf('thread/unsubscribe'));
+  assert.deepEqual(replies, [{ decision: 'cancel' }]);
+});
+
+test('stop drains a late voice delegation before interrupting and unsubscribing', async t => {
+  const h = await harness(t), { id, events } = await allocate(h);
+  await h.request(`/sessions/${id}/start`, { sdp: 'v=0\r\noffer' }); await events.next();
+  h.client.handle = method => {
+    if (method !== 'thread/realtime/stop') return;
+    // The RPC acknowledges queuing before the realtime fanout finishes.
+    setImmediate(() => {
+      h.client.emit('notification', { method: 'turn/started', params: { threadId: 'thread-1', turn: { id: 'late-turn' } } });
+      h.client.emit('notification', { method: 'thread/realtime/closed', params: { threadId: 'thread-1' } });
+    });
+    return {};
+  };
+  await h.request(`/sessions/${id}/stop`, {});
+  assert.ok(h.client.calls.some(c => c.method === 'turn/interrupt' && c.params.turnId === 'late-turn'));
+  assert.equal(h.client.calls.at(-1).method, 'thread/unsubscribe');
+});
+
+test('task workspace and task model are validated separately from voice settings', async t => {
+  const h = await harness(t, { getSettings: () => ({ codexWorkspace: 'relative/path' }) });
+  const { id } = await allocate(h);
+  const response = await h.request(`/sessions/${id}/start`, { sdp: 'v=0\r\noffer' });
+  assert.equal(response.status, 400);
+  assert.match(response.body.error, /absolute folder/);
+  assert.equal(h.client.calls.some(c => c.method === 'thread/start'), false);
+});
+
+test('voice transport loss and task completion preserve the same thread across reconnect', async t => {
+  const h = await harness(t), { id, events } = await allocate(h);
+  await h.request(`/sessions/${id}/start`, { sdp: 'v=0\r\noffer' }); await events.next();
+  h.client.emit('notification', { method: 'turn/started', params: { threadId: 'thread-1', turn: { id: 'search' } } });
+  await events.next();
+  const replies = [];
+  h.client.emit('request', { id: 'approve', method: 'item/commandExecution/requestApproval', params: {
+    threadId: 'thread-1', turnId: 'search', command: 'test',
+  } }, result => replies.push(result));
+  const approval = await events.next();
+  h.client.emit('notification', { method: 'thread/realtime/closed', params: { threadId: 'thread-1', reason: 'transport_closed' } });
+  assert.equal((await events.next()).reason, 'transport_closed');
+  assert.equal((await h.request(`/sessions/${id}/reconnect`, { sdp: 'v=0\r\nnew-offer' })).status, 200);
+  assert.equal((await events.next()).type, 'thread/realtime/sdp');
+  assert.equal(h.client.calls.filter(c => c.method === 'thread/start').length, 1);
+  assert.equal(h.client.calls.filter(c => c.method === 'thread/realtime/start').length, 2);
+  assert.equal(h.client.calls.some(c => c.method === 'turn/interrupt' || c.method === 'thread/unsubscribe'), false);
+  assert.equal((await h.request(`/sessions/${id}/tasks/requests/${approval.requestId}`, { decision: 'accept' })).status, 200);
+  assert.deepEqual(replies, [{ decision: 'accept' }]);
+  await events.next();
+  h.client.emit('notification', { method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'search', status: 'completed' } } });
+  assert.equal((await events.next()).status, 'completed');
+  assert.equal((await h.request(`/sessions/${id}/context`, { text: 'Next question' })).status, 200);
+});
+
+test('reconnect waits for the previous call to close without treating it as a session stop', async t => {
+  const h = await harness(t), { id, events } = await allocate(h);
+  await h.request(`/sessions/${id}/start`, { sdp: 'v=0\r\noffer' }); await events.next();
+  assert.equal((await h.request(`/sessions/${id}/reconnect`, { sdp: 'v=0\r\nnew-offer' })).status, 200);
+  assert.equal((await events.next()).type, 'thread/realtime/sdp');
+  assert.equal(h.client.calls.some(c => c.method === 'thread/unsubscribe'), false);
 });

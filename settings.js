@@ -333,7 +333,7 @@ const ASSISTANT_TEXT_FIELDS = [
     'sttBaseUrl', 'sttApiKey', 'sttModel',
     'ttsBaseUrl', 'ttsApiKey', 'ttsModel', 'ttsVoice', 'ttsSpeed',
     'assistantLanguage',
-    'codexInstructions', 'codexModel',
+    'codexInstructions', 'codexModel', 'codexWorkspace', 'codexTaskModel',
 ];
 const ASSISTANT_SELECTS = ['assistantProvider', 'sttProvider', 'ttsProvider', 'codexVoice'];
 const ASSISTANT_TOGGLES = ['bargeIn'];
@@ -352,12 +352,18 @@ const STATIC_VOICES = {
 };
 
 async function saveSettingsBatch(values) {
-    await fetch('/api/settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(values),
-    });
-    flashSaved();
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Assistant-Request': '1' },
+            body: JSON.stringify(values),
+        });
+        if (!response.ok) throw new Error((await response.json()).error || 'Settings could not be saved.');
+        flashSaved();
+    } catch (error) {
+        clearTimeout(savedTimer);
+        document.getElementById('assistantSaveStatus').textContent = error.message;
+    }
 }
 
 let savedTimer;

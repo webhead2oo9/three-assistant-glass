@@ -1,8 +1,9 @@
 import express from 'express';
 import { randomUUID } from 'node:crypto';
+import { createCodexTaskHandler, codexTaskConfig, codexVoiceInstructions } from './codex-tasks.mjs';
 
 export const DEFAULT_CODEX_INSTRUCTIONS = 'You are a friendly voice assistant represented by a 3D character. ' +
-  'Speak naturally and keep replies concise. This is a conversation, with no computer tasks or tool access. ' +
+  'Speak naturally and keep replies concise. ' +
   'Do not use markdown, lists or emoji. Wait for the user to speak.';
 
 const REALTIME_EVENTS = new Set([
@@ -42,9 +43,10 @@ export function createCodexRouter(client, { getSettings = () => ({}), attachTime
   const sessions = new Map();
   let login = null;
   let accountBusy = false;
+  const tasks = createCodexTaskHandler(client, { sessions, emit });
 
   function emit(session, type, data = {}) {
-    if (!session.events || session.events.destroyed) return;
+    if (session.closed || !session.events || session.events.destroyed || session.events.writableEnded) return;
     if (session.events.writableLength > 256 * 1024) {
       void stop(session);
       return;
@@ -56,10 +58,24 @@ export function createCodexRouter(client, { getSettings = () => ({}), attachTime
     if (session.cleanup) return session.cleanup;
     session.cleanup = (async () => {
       await session.starting?.catch(() => {});
+      await session.recovering?.catch(() => {});
       if (session.threadId && client.child) {
         await client.request('thread/realtime/stop', { threadId: session.threadId }).catch(() => {});
+        // The stop RPC only queues the core operation. Wait until its event fanout
+        // has drained, so a final queued delegation cannot start after cancellation.
+        if (session.voiceStarted && !session.voiceClosed && client.child) {
+          let timer;
+          const closed = await Promise.race([
+            session.whenVoiceClosed.then(() => true),
+            new Promise(resolve => { timer = setTimeout(() => resolve(false), 5000); }),
+          ]);
+          clearTimeout(timer);
+          if (!closed) client.disconnect(new Error('Codex did not finish stopping the voice session.'));
+        }
+        await tasks.stop(session);
         if (client.child) await client.request('thread/unsubscribe', { threadId: session.threadId }).catch(() => {});
       }
+      sessions.delete(session.id);
     })();
     return session.cleanup;
   }
@@ -70,31 +86,38 @@ export function createCodexRouter(client, { getSettings = () => ({}), attachTime
       clearTimeout(session.expiry);
       clearInterval(session.heartbeat);
       session.events?.end();
-      sessions.delete(session.id);
     }
     return release(session);
   }
 
   client.on('notification', message => {
     const params = message.params || {};
+    tasks.notification(message);
     if (message.method === 'account/login/completed' && login?.id === params.loginId) {
       login = { id: login.id, pending: false, error: params.success ? null : (params.error || 'Sign-in did not complete.') };
     }
     const terminalError = message.method === 'error' && params.willRetry === false;
     if (!REALTIME_EVENTS.has(message.method) && !terminalError) return;
     const session = [...sessions.values()].find(s => s.threadId === params.threadId);
+    if (session && message.method === 'thread/realtime/closed') {
+      session.voiceClosed = true;
+      session.resolveVoiceClosed();
+    }
     if (!session || session.closed) return;
+    if (session.recovering && ['thread/realtime/closed', 'thread/realtime/error'].includes(message.method)) return;
     if (terminalError) {
-      emit(session, 'error', { message: params.error?.message || 'The Codex voice task failed. Try starting again.' });
-      void stop(session);
+      emit(session, 'codex/task/error', { message: params.error?.message || 'The Codex task failed.' });
       return;
     }
     emit(session, message.method, params);
-    if (message.method === 'thread/realtime/error' || message.method === 'thread/realtime/closed') void stop(session);
+    // A lost realtime call is not the end of the backing task. The browser can
+    // negotiate another call on this same thread, retaining progress and approvals.
+    if (!session.voiceStarted && (message.method === 'thread/realtime/error' || message.method === 'thread/realtime/closed')) void stop(session);
   });
   client.on('disconnect', () => {
     if (login?.pending) login = { ...login, pending: false, error: 'Codex disconnected. Start sign-in again.' };
     for (const session of sessions.values()) {
+      session.resolveVoiceClosed();
       emit(session, 'error', { message: 'Codex disconnected. Try starting the assistant again.' });
       void stop(session);
     }
@@ -160,6 +183,7 @@ export function createCodexRouter(client, { getSettings = () => ({}), attachTime
     if (res.destroyed) return;
     if (sessions.size) throw fail('A voice session is already open. Stop it before starting another.', 409);
     const session = { id: randomUUID(), threadId: null, events: null, closed: false };
+    session.whenVoiceClosed = new Promise(resolve => { session.resolveVoiceClosed = resolve; });
     session.expiry = setTimeout(() => void stop(session), attachTimeoutMs);
     session.expiry.unref?.();
     sessions.set(session.id, session);
@@ -193,24 +217,21 @@ export function createCodexRouter(client, { getSettings = () => ({}), attachTime
     const instructions = (typeof configured === 'string' && configured.trim()) || DEFAULT_CODEX_INSTRUCTIONS;
     if (instructions.length > 8000) throw fail('Character instructions must be under 8,000 characters.');
     session.starting = (async () => {
-      const result = await client.request('thread/start', {
-        cwd: client.cwd, modelProvider: 'openai', ephemeral: true,
-        sandbox: 'read-only', approvalPolicy: 'untrusted',
-        environments: [], selectedCapabilityRoots: [], dynamicTools: [],
-        baseInstructions: instructions,
-        // Codex 0.153.4 requires this opt-in; newer releases accept it as a no-op.
-        config: { 'features.realtime_conversation': true,
-          'web_search': 'disabled', 'features.shell_tool': false, 'features.apps': false,
-          'features.multi_agent': false, 'features.multi_agent_v2': false },
-      });
+      const config = await codexTaskConfig(settings, client.cwd);
+      if (session.closed) return;
+      const result = await client.request('thread/start', config);
       session.threadId = result.thread.id;
       if (session.closed) return;
-      await client.request('thread/realtime/start', {
+      session.voiceParams = {
         threadId: session.threadId, outputModality: 'audio', version: 'v3',
-        includeStartupContext: false, prompt: instructions,
+        // Prevent raw tool/citation output from bypassing the clean return path.
+        includeStartupContext: false, clientManagedHandoffs: true,
+        prompt: codexVoiceInstructions(instructions),
         ...(model ? { model } : {}), ...(voice ? { voice } : {}),
-        transport: { type: 'webrtc', sdp },
-      });
+      };
+      await client.request('thread/realtime/start', { ...session.voiceParams, transport: { type: 'webrtc', sdp } });
+      session.voiceStarted = true;
+      tasks.voiceReady(session);
     })();
     try {
       await session.starting;
@@ -220,6 +241,41 @@ export function createCodexRouter(client, { getSettings = () => ({}), attachTime
       void stop(session);
       throw error;
     }
+  }));
+  router.post('/sessions/:id/reconnect', route(async (req, res) => {
+    const session = sessionFor(req), sdp = req.body?.sdp;
+    if (!session.voiceStarted || !session.voiceParams) throw fail('Voice has not started.', 409);
+    if (session.recovering) throw fail('Voice is already reconnecting.', 409);
+    if (typeof sdp !== 'string' || !sdp.startsWith('v=0') || sdp.length > 128 * 1024) throw fail('A browser-generated SDP offer is required.');
+    session.recovering = Promise.resolve().then(async () => {
+      tasks.voiceDisconnected(session);
+      if (!session.voiceClosed) {
+        await client.request('thread/realtime/stop', { threadId: session.threadId });
+        let timer;
+        try {
+          await Promise.race([session.whenVoiceClosed,
+            new Promise((resolve, reject) => { timer = setTimeout(() => reject(fail('Voice did not finish disconnecting.')), 5000); })]);
+        } finally { clearTimeout(timer); }
+      }
+      if (session.closed) return;
+      session.voiceClosed = false;
+      session.whenVoiceClosed = new Promise(resolve => { session.resolveVoiceClosed = resolve; });
+      await client.request('thread/realtime/start', { ...session.voiceParams,
+        ...tasks.voiceContext(session), transport: { type: 'webrtc', sdp } });
+      tasks.voiceReady(session);
+    });
+    try {
+      await session.recovering;
+      res.json({ threadId: session.threadId });
+    } finally { session.recovering = null; }
+  }));
+  router.post('/sessions/:id/tasks/cancel', route(async (req, res) => {
+    await tasks.cancel(sessionFor(req));
+    res.json({});
+  }));
+  router.post('/sessions/:id/tasks/requests/:requestId', route(async (req, res) => {
+    tasks.reply(sessionFor(req), req.params.requestId, req.body || {});
+    res.json({});
   }));
   router.post('/sessions/:id/context', route(async (req, res) => {
     const session = sessionFor(req);

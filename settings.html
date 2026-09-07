@@ -230,6 +230,16 @@
                 <span>Character instructions</span>
                 <textarea id="codexInstructions" class="rounded-input" maxlength="8000" placeholder="A friendly voice assistant who speaks naturally and keeps replies concise."></textarea>
             </label>
+            <label class="switch" for="codexWorkspace">
+                <span>Task workspace (optional)</span>
+                <input id="codexWorkspace" class="rounded-input" placeholder="Absolute path to an existing folder">
+            </label>
+            <p class="assistant-hint">ChatGPT can research and work on files while you keep talking. Leave the workspace blank to use the app’s dedicated voice-workspace folder. Tasks can edit files there; commands requiring approval appear in the task panel.</p>
+            <label class="switch" for="codexTaskModel">
+                <span>Task model override (optional)</span>
+                <input id="codexTaskModel" class="rounded-input" maxlength="120" placeholder="Default Codex task model">
+            </label>
+            <p class="assistant-hint">The task model is separate from the realtime voice model. Changes apply on the next session. Cancel task keeps voice connected; Stop ends voice and running work.</p>
         </div>
 
         <div id="customAssistantSection" hidden>

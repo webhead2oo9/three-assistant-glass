@@ -1,14 +1,34 @@
 import { codexRequest } from './codex-api.js';
+import { createCodexTaskHandler } from './codex-tasks.js';
+
+async function finishIceGathering(connection, signal) {
+  if (connection.iceGatheringState === 'complete' || signal.aborted) return;
+  await new Promise(resolve => {
+    const done = () => {
+      clearTimeout(timer);
+      connection.onicegatheringstatechange = null;
+      signal.removeEventListener('abort', done);
+      resolve();
+    };
+    const timer = setTimeout(done, 5000);
+    connection.onicegatheringstatechange = () => {
+      if (connection.iceGatheringState === 'complete') done();
+    };
+    signal.addEventListener('abort', done, { once: true });
+  });
+}
 
 // The browser owns the media; our local server only bridges the Codex control
 // protocol. OAuth tokens never enter the page or the app's settings JSON.
 export function createCodexAssistant(settings, ui) {
   let running = false;
   let connected = false;
+  let established = false;
   let sessionId = null;
   let controller = null;
   let events = null;
   let peer = null;
+  let dataChannel = null;
   let mic = null;
   let audio = null;
   let audioCtx = null;
@@ -20,6 +40,7 @@ export function createCodexAssistant(settings, ui) {
   let lastSound = 0;
   const transcripts = new Map();
   let displayedRole = null;
+  let tasks = null;
   const onPageHide = () => stop();
 
   function milestone(label, run) {
@@ -38,7 +59,7 @@ export function createCodexAssistant(settings, ui) {
 
   function fail(error) {
     if (!running) return;
-    const wasConnected = connected;
+    const wasConnected = established;
     stop(error);
     if (wasConnected) ui.onEnd?.(error);
   }
@@ -46,10 +67,15 @@ export function createCodexAssistant(settings, ui) {
   function stop(reason) {
     running = false;
     connected = false;
+    established = false;
     controller?.abort(reason);
     clearTimeout(disconnectTimer);
     window.removeEventListener('pagehide', onPageHide);
     events?.close();
+    tasks?.close(reason?.message);
+    tasks = null;
+    dataChannel?.close();
+    dataChannel = null;
     peer?.close();
     mic?.getTracks().forEach(track => track.stop());
     source?.disconnect();
@@ -77,6 +103,87 @@ export function createCodexAssistant(settings, ui) {
       const active = () => running && controller === run && !run.signal.aborted;
       const ensureActive = () => run.signal.throwIfAborted();
       const failCurrent = error => { if (active()) fail(error); };
+      let answer = null, recovery = null, recoveryAttempts = 0;
+      const recover = error => {
+        if (!active() || recovery) return;
+        if (!established || recoveryAttempts >= 2) { failCurrent(error); return; }
+        recoveryAttempts++;
+        connected = false;
+        ui.onStatus('Reconnecting voice…');
+        tasks?.handle({ type: 'codex/task/voiceStatus', message: 'Voice connection dropped. Reconnecting; your task is preserved.' });
+        recovery = Promise.resolve().then(() => connectVoice('reconnect'))
+          .then(() => { if (active()) tasks?.handle({ type: 'codex/task/voiceStatus', message: 'Voice reconnected.' }); })
+          .catch(error => { if (active()) failCurrent(error); })
+          .finally(() => { recovery = null; });
+      };
+      async function connectVoice(action) {
+        ensureActive();
+        const oldPeer = peer;
+        peer = null;
+        dataChannel?.close();
+        dataChannel = null;
+        oldPeer?.close();
+        source?.disconnect();
+        source = null;
+        if (audio) { audio.pause(); audio.srcObject = null; }
+        clearTimeout(disconnectTimer);
+        transcripts.clear();
+        displayedRole = null;
+        answer = milestone('negotiating ChatGPT voice', run);
+        const mediaConnected = milestone('connecting voice audio', run);
+        audio = document.createElement('audio');
+        audio.autoplay = true;
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 512;
+        samples = new Uint8Array(analyser.fftSize);
+        const connection = new RTCPeerConnection();
+        peer = connection;
+        connection.ontrack = event => {
+          if (!active() || peer !== connection || event.track.kind !== 'audio') return;
+          const remote = event.streams[0] || new MediaStream([event.track]);
+          audio.srcObject = remote;
+          source?.disconnect();
+          source = audioCtx.createMediaStreamSource(remote);
+          // The audio element plays the stream; the analyser only measures it.
+          source.connect(analyser);
+          audio.play().catch(() => failCurrent(new Error('Audio playback was blocked. Press Play to try again.')));
+        };
+        connection.onconnectionstatechange = () => {
+          if (!active() || peer !== connection) return;
+          clearTimeout(disconnectTimer);
+          if (connection.connectionState === 'connected') {
+            mediaConnected.resolve();
+          } else if (connection.connectionState === 'failed' || connection.connectionState === 'closed') {
+            recover(new Error('Voice audio disconnected.'));
+          } else if (connection.connectionState === 'disconnected') {
+            disconnectTimer = setTimeout(() => recover(new Error('Voice audio disconnected.')), 8000);
+          }
+        };
+        for (const track of mic.getAudioTracks()) connection.addTrack(track, mic);
+        // Keep the channel alive for the whole call. An unreferenced channel
+        // without listeners can be garbage-collected and closed by the browser.
+        // Transcripts still arrive through the app-server event stream.
+        dataChannel = connection.createDataChannel('oai-events');
+        dataChannel.onmessage = () => {};
+        const offer = await connection.createOffer();
+        ensureActive();
+        await connection.setLocalDescription(offer);
+        // The app-server exchange does not trickle ICE candidates afterward.
+        // Send the gathered description, not the original candidate-free offer.
+        await finishIceGathering(connection, run.signal);
+        ensureActive();
+        const [, sdp] = await Promise.all([
+          codexRequest(`/sessions/${sessionId}/${action}`, { sdp: connection.localDescription.sdp }, { signal: run.signal }),
+          answer.promise,
+        ]);
+        ensureActive();
+        await connection.setRemoteDescription({ type: 'answer', sdp });
+        await mediaConnected.promise;
+        ensureActive();
+        connected = true;
+        established = true;
+        ui.onStatus('Listening…');
+      }
       window.addEventListener('pagehide', onPageHide);
       ui.onStatus('Connecting to ChatGPT…');
       try {
@@ -104,9 +211,9 @@ export function createCodexAssistant(settings, ui) {
           ensureActive();
         }
         sessionId = allocated.sessionId;
+        tasks = createCodexTaskHandler(sessionId);
         const ready = milestone('connecting to the local voice server', run);
-        const answer = milestone('negotiating ChatGPT voice', run);
-        const mediaConnected = milestone('connecting voice audio', run);
+
         events = new EventSource(`/api/codex/sessions/${sessionId}/events`);
         events.onerror = () => failCurrent(new Error('Voice connection was lost. Try starting again.'));
         events.onmessage = event => {
@@ -114,15 +221,22 @@ export function createCodexAssistant(settings, ui) {
           let message;
           try { message = JSON.parse(event.data); }
           catch { failCurrent(new Error('Invalid voice event received.')); return; }
+          if (tasks?.handle(message)) return;
           switch (message.type) {
             case 'ready': ready.resolve(); break;
-            case 'thread/realtime/sdp': answer.resolve(message.sdp); break;
+            case 'thread/realtime/sdp': answer?.resolve(message.sdp); break;
             case 'error':
+              failCurrent(new Error(message.message || 'Codex disconnected.'));
+              break;
             case 'thread/realtime/error':
-              failCurrent(new Error(message.message || 'ChatGPT voice is unavailable for this account.'));
+              recover(new Error(message.message || 'ChatGPT voice is unavailable for this account.'));
               break;
             case 'thread/realtime/closed':
-              failCurrent(connected ? undefined : new Error(message.reason || 'Voice session closed before connecting.'));
+              if (message.reason === 'transport_closed' || message.reason === 'error') {
+                recover(new Error(`Voice connection ended (${message.reason}).`));
+              } else {
+                failCurrent(new Error(message.reason || 'Voice session ended.'));
+              }
               break;
             case 'thread/realtime/transcript/delta':
             case 'thread/realtime/transcript/done': {
@@ -145,51 +259,9 @@ export function createCodexAssistant(settings, ui) {
         };
         await ready.promise;
         ensureActive();
-        audio = document.createElement('audio');
-        audio.autoplay = true;
-        analyser = audioCtx.createAnalyser();
-        analyser.fftSize = 512;
-        samples = new Uint8Array(analyser.fftSize);
-        peer = new RTCPeerConnection();
-        peer.ontrack = event => {
-          if (!active() || event.track.kind !== 'audio') return;
-          const remote = event.streams[0] || new MediaStream([event.track]);
-          audio.srcObject = remote;
-          source?.disconnect();
-          source = audioCtx.createMediaStreamSource(remote);
-          // The audio element plays the stream; the analyser only measures it.
-          source.connect(analyser);
-          audio.play().catch(() => failCurrent(new Error('Audio playback was blocked. Press Play to try again.')));
-        };
-        peer.onconnectionstatechange = () => {
-          if (!active()) return;
-          clearTimeout(disconnectTimer);
-          if (peer.connectionState === 'connected') {
-            mediaConnected.resolve();
-          } else if (peer.connectionState === 'failed' || peer.connectionState === 'closed') {
-            failCurrent(new Error('Voice audio disconnected. Try starting again.'));
-          } else if (peer.connectionState === 'disconnected') {
-            disconnectTimer = setTimeout(() => failCurrent(new Error('Voice audio disconnected. Try starting again.')), 8000);
-          }
-        };
-        for (const track of mic.getAudioTracks()) peer.addTrack(track, mic);
-        peer.createDataChannel('oai-events');
-        const offer = await peer.createOffer();
-        ensureActive();
-        await peer.setLocalDescription(offer);
-        ensureActive();
-        const [, sdp] = await Promise.all([
-          codexRequest(`/sessions/${sessionId}/start`, { sdp: offer.sdp }, { signal: run.signal }),
-          answer.promise,
-        ]);
-        ensureActive();
-        await peer.setRemoteDescription({ type: 'answer', sdp });
-        await mediaConnected.promise;
-        ensureActive();
-        connected = true;
-        ui.onStatus('Listening…');
+        await connectVoice('start');
       } catch (error) {
-        if (controller === run) stop();
+        if (controller === run) stop(error);
         throw error;
       }
     },

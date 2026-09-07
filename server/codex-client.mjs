@@ -22,6 +22,7 @@ export class CodexClient extends EventEmitter {
     this.child = null;
     this.starting = null;
     this.pending = new Map();
+    this.incoming = new Map();
     this.nextId = 0;
     this.closed = false;
   }
@@ -94,8 +95,16 @@ export class CodexClient extends EventEmitter {
   receive(message) {
     if (message.method) {
       if (message.id !== undefined) {
-        // The character client does not implement agent tools or approvals.
-        this.write({ id: message.id, error: { code: -32601, message: 'This voice client does not support tools or approvals.' } });
+        const child = this.child;
+        const respond = (result, error) => {
+          if (this.child !== child || this.incoming.get(message.id) !== respond) return;
+          this.incoming.delete(message.id);
+          this.write({ id: message.id, ...(error ? { error } : { result }) });
+        };
+        this.incoming.set(message.id, respond);
+        if (!this.emit('request', message, respond)) {
+          respond(null, { code: -32601, message: 'Unsupported Codex request.' });
+        }
       } else {
         this.emit('notification', message);
       }
@@ -146,6 +155,7 @@ export class CodexClient extends EventEmitter {
       request.reject(error);
     }
     this.pending.clear();
+    this.incoming.clear();
     child?.kill();
     this.emit('disconnect', error);
   }

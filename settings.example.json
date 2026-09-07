@@ -34,5 +34,7 @@
   "bargeIn": true,
   "codexInstructions": "",
   "codexModel": "",
-  "codexVoice": ""
+  "codexVoice": "",
+  "codexWorkspace": "",
+  "codexTaskModel": ""
 }

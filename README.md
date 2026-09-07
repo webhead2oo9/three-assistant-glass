@@ -124,19 +124,48 @@ the Codex default (`gpt-live-1-codex` with protocol v3 in CLI 0.153.4). Override
 must name a compatible realtime model available to your account. Model and voice
 changes apply to the next session, after stopping and pressing Play again.
 
+ChatGPT can delegate work to the backing Codex agent while voice stays connected.
+In Settings, optionally set **Task workspace** to an existing absolute folder path
+and **Task model override** to a Codex-compatible task model. The default workspace
+is `~/.three-assistant-glass/codex/voice-workspace` (under the configured Codex home);
+the default task model is selected by Codex, separately from the realtime model.
+Tasks use the local execution environment, workspace-write sandbox, and `untrusted`
+command approval policy. This initial handler supports local file/command work and
+web search; connected apps and further subagent spawning remain disabled.
+
+The **ChatGPT tasks** panel shows recent agent output, proposed commands and file
+changes requiring approval, additional permission requests, and clarification
+questions. Approval buttons apply only to the displayed request; additional
+permission grants last for the current task. **Cancel task** interrupts the agent
+while leaving voice connected. **Stop**, page exit, and sign-out stop voice and
+interrupt running work; cancellation does not undo changes already made. Task
+history is ephemeral. A normal Stop clears the panel; after a connection failure,
+the output and error remain visible until dismissed or a new session starts.
+Lost voice calls reconnect up to twice on the same Codex thread, preserving task
+progress and pending approvals. Task completion itself does not end voice.
+
 Codex keeps this app's login in `~/.three-assistant-glass/codex`, outside the served
 project and separate from your normal Codex profile. ChatGPT tokens are never
 stored in `settings.json` or returned to the browser. **Sign out** affects only this
 app's profile and ends any active voice session.
 
 The Node server talks to Codex using JSON-RPC over stdio. It creates an ephemeral
-thread with no execution environments and negotiates `thread/realtime/start`
+thread with the configured task workspace and negotiates `thread/realtime/start`
 using WebRTC and protocol `v3`. The browser sends microphone audio directly over
 WebRTC, plays the remote audio, and measures it for mouth animation. Transcript
 events arrive through a local server-sent event stream and update the speech bubble.
 Clipboard context, when enabled, is sent through `thread/realtime/appendText`.
 This provider does not use the Custom provider's STT/TTS settings or its barge-in
 toggle; voice turn-taking is handled by the realtime service.
+
+Task handling is isolated in `server/codex-tasks.mjs` and
+`assistant/codex-tasks.js`. Native realtime delegation starts or steers the backing
+Codex turn. The return path uses `clientManagedHandoffs` and
+`server/codex-voice-output.mjs` to send complete, cleaned progress and result messages
+through `thread/realtime/appendSpeech`. Raw search deltas, citation tokens, and approval
+JSON are not mirrored into voice. Reconnects restore bounded, cleaned conversation
+context instead of replaying the raw task history. The browser handles
+only task display and explicit responses; it does not execute model-supplied code.
 
 Stopping, leaving the page, signing out, or losing the control connection releases
 the browser microphone and closes the Codex voice session. Only one character
@@ -152,7 +181,7 @@ Local configuration (set these before `npm start`):
 | `THREE_ASSISTANT_PORT` | App port, default `3000`. |
 | `THREE_ASSISTANT_NO_OPEN=1` | Suppress opening a browser when the server starts. |
 
-Run `npm test` for protocol, route, browser lifecycle, and Settings regression tests.
+Run `npm test` for protocol, task/approval handling, route, browser lifecycle, and Settings regression tests.
 The tests substitute the upstream voice service; they do not establish live voice
 entitlement. An account/voice error is displayed in the app, with no automatic
 switch to an API-key provider. References: [Codex authentication](https://learn.chatgpt.com/docs/auth),

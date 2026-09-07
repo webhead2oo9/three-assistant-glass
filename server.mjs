@@ -10,7 +10,7 @@ import { promises as fsPromises } from 'fs';
 import multer from 'multer';
 import AdmZip from 'adm-zip';
 import { CodexClient } from './server/codex-client.mjs';
-import { createCodexRouter } from './server/codex-routes.mjs';
+import { createCodexRouter, localCodexRequest } from './server/codex-routes.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -108,7 +108,10 @@ app.get('/api/settings', async (req, res) => {
   }
 });
 
-app.post('/api/settings', express.json(), async (req, res) => {
+app.post('/api/settings', express.json(), (req, res, next) => {
+  if (Object.keys(req.body || {}).some(key => key.startsWith('codex'))) return localCodexRequest(req, res, next);
+  next();
+}, async (req, res) => {
   try {
     const currentSettings = { ...settings };
     
@@ -123,7 +126,7 @@ app.post('/api/settings', express.json(), async (req, res) => {
       'llmBaseUrl', 'llmApiKey', 'llmModel', 'llmSystemPrompt', 'llmFirstMessage',
       'sttProvider', 'sttBaseUrl', 'sttApiKey', 'sttModel',
       'ttsProvider', 'ttsBaseUrl', 'ttsApiKey', 'ttsModel', 'ttsVoice', 'ttsSpeed',
-      'codexInstructions', 'codexModel', 'codexVoice',
+      'codexInstructions', 'codexModel', 'codexVoice', 'codexWorkspace', 'codexTaskModel',
     ];
 
     possibleSettings.forEach(setting => {

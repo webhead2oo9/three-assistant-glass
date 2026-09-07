@@ -91,8 +91,26 @@ test('unexpected server tool requests receive an explicit unsupported response',
   const child = h.processes[0];
   child.stdout.write(JSON.stringify({ id: 'approval-1', method: 'item/commandExecution/requestApproval', params: {} }) + '\n');
   assert.deepEqual(child.messages.at(-1), {
-    id: 'approval-1', error: { code: -32601, message: 'This voice client does not support tools or approvals.' },
+    id: 'approval-1', error: { code: -32601, message: 'Unsupported Codex request.' },
   });
+});
+
+test('server request replies are deferred, single-use, and cannot cross process restarts', async t => {
+  const h = await harness(t);
+  const replies = [];
+  h.client.on('request', (message, respond) => replies.push(respond));
+  await h.client.start();
+  const first = h.processes[0];
+  first.stdout.write(JSON.stringify({ id: 'approval', method: 'item/commandExecution/requestApproval' }) + '\n');
+  assert.equal(first.messages.some(m => m.id === 'approval'), false);
+  replies[0]({ decision: 'decline' });
+  replies[0]({ decision: 'accept' });
+  assert.equal(first.messages.filter(m => m.id === 'approval').length, 1);
+  first.stdout.write(JSON.stringify({ id: 'late', method: 'item/commandExecution/requestApproval' }) + '\n');
+  h.client.disconnect(new Error('restart'));
+  await h.client.start();
+  replies[1]({ decision: 'accept' });
+  assert.equal(h.processes[1].messages.some(m => m.id === 'late'), false);
 });
 
 test('missing Codex binary reports a useful error and shutdown prevents restart', async t => {
