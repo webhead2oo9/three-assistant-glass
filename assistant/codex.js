@@ -19,6 +19,7 @@ export function createCodexAssistant(settings, ui) {
   let speaking = false;
   let lastSound = 0;
   const transcripts = new Map();
+  let displayedRole = null;
   const onPageHide = () => stop();
 
   function milestone(label, run) {
@@ -57,6 +58,7 @@ export function createCodexAssistant(settings, ui) {
     events = peer = mic = source = audio = audioCtx = analyser = null;
     samples = null;
     transcripts.clear();
+    displayedRole = null;
     speaking = false;
     lastSound = 0;
     if (sessionId) {
@@ -129,6 +131,12 @@ export function createCodexAssistant(settings, ui) {
               const text = (done ? message.text : (transcripts.get(message.role) || '') + message.delta).slice(-12000);
               if (done) transcripts.delete(message.role);
               else transcripts.set(message.role, text);
+              // User transcription can arrive after assistant output starts.
+              // Finish collecting it without replacing the streaming reply.
+              if (message.role === 'user' && transcripts.has('assistant')) break;
+              // A finalization updates its displayed speaker; it is not a new turn.
+              if (done && displayedRole && displayedRole !== message.role) break;
+              displayedRole = message.role;
               ui.onSpeaker(message.role === 'user' ? 'User' : 'Character');
               ui.onText(text);
               break;

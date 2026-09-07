@@ -95,6 +95,26 @@ test('browser negotiates WebRTC, plays remote audio, displays transcripts and an
   assert.equal(h.assistant.mouthLevel(), 0);
 });
 
+test('interleaved user transcripts cannot replace a streaming assistant reply', async () => {
+  const h = await harness(); await h.assistant.start();
+  const emit = (part, role, value) => h.sources[0].emit(`thread/realtime/transcript/${part}`, {
+    role, [part === 'done' ? 'text' : 'delta']: value,
+  });
+  emit('delta', 'user', 'Question');
+  emit('delta', 'assistant', 'Answer ');
+  emit('delta', 'user', ' revised');
+  emit('done', 'user', 'Question revised?');
+  emit('delta', 'assistant', 'continues');
+  emit('done', 'assistant', 'Answer continues.');
+  emit('done', 'user', 'Late question final');
+  assert.deepEqual(h.texts, ['Question', 'Answer ', 'Answer continues', 'Answer continues.']);
+  emit('delta', 'user', 'Next question');
+  emit('done', 'assistant', 'Late answer final');
+  assert.equal(h.texts.at(-1), 'Next question');
+  assert.equal(h.speakers.at(-1), 'User');
+  h.assistant.stop();
+});
+
 test('Stop releases a microphone granted after permission was pending', async () => {
   const permission = deferred();
   const h = await harness({ permission });
