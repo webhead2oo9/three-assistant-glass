@@ -138,6 +138,7 @@ test('voice creates an isolated thread, negotiates WebRTC and forwards only voic
   const thread = h.client.calls.find(c => c.method === 'thread/start').params;
   assert.equal(thread.cwd, h.client.cwd);
   assert.equal(thread.ephemeral, true);
+  assert.equal(thread.config['features.realtime_conversation'], true);
   assert.equal(thread.sandbox, 'read-only');
   assert.deepEqual(thread.environments, []);
   const start = h.client.calls.find(c => c.method === 'thread/realtime/start').params;

@@ -187,7 +187,9 @@ export function createCodexRouter(client, { getSettings = () => ({}), attachTime
         sandbox: 'read-only', approvalPolicy: 'untrusted',
         environments: [], selectedCapabilityRoots: [], dynamicTools: [],
         baseInstructions: instructions,
-        config: { 'web_search': 'disabled', 'features.shell_tool': false, 'features.apps': false,
+        // Codex 0.153.4 requires this opt-in; newer releases accept it as a no-op.
+        config: { 'features.realtime_conversation': true,
+          'web_search': 'disabled', 'features.shell_tool': false, 'features.apps': false,
           'features.multi_agent': false, 'features.multi_agent_v2': false },
       });
       session.threadId = result.thread.id;
