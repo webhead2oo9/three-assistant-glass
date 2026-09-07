@@ -54,36 +54,43 @@ function bufferSpeaker(synth, hooks) {
   analyser.connect(audioCtx.destination);
   const samples = new Uint8Array(analyser.fftSize);
 
-  const queue = [];       // pending { buffer: Promise<AudioBuffer|null> }
+  const queue = [];       // pending { text, buffer: Promise<AudioBuffer|null> }
   let playing = null;     // current AudioBufferSourceNode
   let speaking = false;
+  let pumping = false;    // single consumer keeps sentences in order
   let generation = 0;     // bumped on cancel so stale synth results are dropped
 
-  async function pump() {
-    if (playing || queue.length === 0) return;
-    const item = queue.shift();
-    const gen = generation;
-    const buffer = await item.buffer;
-    if (gen !== generation) return;
+  function play(buffer) {
+    return new Promise((resolve) => {
+      const source = audioCtx.createBufferSource();
+      source.buffer = buffer;
+      source.connect(analyser);
+      source.onended = () => {
+        if (playing === source) playing = null;
+        resolve();
+      };
+      playing = source;
+      source.start();
+    });
+  }
 
-    if (!speaking) { speaking = true; hooks.onStart?.(); }
-    hooks.onSentence?.(item.text);
-    if (!buffer) { // synthesis failed — show the text, move on
-      if (queue.length === 0) { speaking = false; hooks.onEnd?.(); }
-      pump();
-      return;
+  async function pump() {
+    if (pumping) return;
+    pumping = true;
+    try {
+      while (queue.length > 0) {
+        const item = queue.shift();
+        const gen = generation;
+        const buffer = await item.buffer; // later sentences keep synthesizing meanwhile
+        if (gen !== generation) continue; // cancelled while synthesizing
+        if (!speaking) { speaking = true; hooks.onStart?.(); }
+        hooks.onSentence?.(item.text);    // show the text even if synthesis failed
+        if (buffer) await play(buffer);
+      }
+    } finally {
+      pumping = false;
+      if (speaking && queue.length === 0) { speaking = false; hooks.onEnd?.(); }
     }
-    const source = audioCtx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(analyser);
-    source.onended = () => {
-      if (playing !== source) return;
-      playing = null;
-      if (queue.length === 0) { speaking = false; hooks.onEnd?.(); }
-      pump();
-    };
-    playing = source;
-    source.start();
   }
 
   return {
@@ -99,7 +106,7 @@ function bufferSpeaker(synth, hooks) {
       if (playing) {
         const source = playing;
         playing = null;
-        try { source.stop(); } catch { /* already stopped */ }
+        try { source.stop(); } catch { /* already stopped */ } // resolves play()
       }
       if (speaking) { speaking = false; hooks.onEnd?.(); }
     },
