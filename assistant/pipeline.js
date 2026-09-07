@@ -40,9 +40,9 @@ export function createAssistant(settings, ui) {
   const history = [];
   let stt = null;
   let speaker = null;
-  let abort = null;
+  let reply = null;
+  let session = 0;
   let running = false;
-  let responding = false;
   let spokenText = '';          // what's been said aloud for the current reply
   let spokenLog = [];           // { text, at } — for echo detection
   let heardWhileSpeaking = false;
@@ -72,14 +72,25 @@ export function createAssistant(settings, ui) {
   }
 
   function cancelReply() {
-    abort?.abort();
-    speaker.cancel();
-    responding = false;
+    if (reply) {
+      const interrupted = reply;
+      finishReply(interrupted);
+      reply = null;
+      interrupted.controller.abort();
+    }
+    speaker?.cancel();
+  }
+
+  function finishReply(turn) {
+    if (turn.text) {
+      history.push({ role: 'assistant', content: turn.text });
+      trimHistory();
+    }
   }
 
   async function handleUtterance(text) {
     if (!running) return;
-    const busy = responding || speaker.isSpeaking();
+    const busy = reply !== null || speaker.isBusy();
     const startedWhileSpeaking = heardWhileSpeaking;
     heardWhileSpeaking = false;
 
@@ -99,10 +110,9 @@ export function createAssistant(settings, ui) {
   }
 
   async function respond() {
-    responding = true;
     const controller = new AbortController();
-    abort = controller;
-    let text = '';
+    const turn = { controller, text: '' };
+    reply = turn;
     spokenText = '';
     const splitter = createSentenceSplitter(say);
 
@@ -111,16 +121,19 @@ export function createAssistant(settings, ui) {
       await streamChat(history, {
         signal: controller.signal,
         onDelta: (delta) => {
-          text += delta;
+          if (!running || reply !== turn) return;
+          turn.text += delta;
           splitter.push(delta); // the bubble updates as sentences are *spoken*
         },
       });
-      splitter.flush();
+      if (running && reply === turn) splitter.flush();
     } catch (err) {
-      if (err.name !== 'AbortError') ui.onError(err);
+      if (reply === turn && err.name !== 'AbortError') ui.onError(err);
     } finally {
-      if (text) history.push({ role: 'assistant', content: text });
-      if (abort === controller) { responding = false; abort = null; }
+      if (reply === turn) {
+        finishReply(turn);
+        reply = null;
+      }
     }
   }
 
@@ -130,9 +143,11 @@ export function createAssistant(settings, ui) {
 
   return {
     async start() {
+      const startingSession = ++session;
       running = true;
       history.length = 0;
       spokenLog = [];
+      heardWhileSpeaking = false;
       history.push({ role: 'system', content: settings.llmSystemPrompt || DEFAULT_SYSTEM_PROMPT });
 
       speaker = createSpeaker(settings, {
@@ -149,7 +164,7 @@ export function createAssistant(settings, ui) {
         },
         onEnd: () => {
           if (!bargeIn) stt?.setSuppressed(false);
-          if (running && !responding) ui.onStatus('Listening…');
+          if (running && !reply) ui.onStatus('Listening…');
         },
         onStatus: ui.onStatus,
         onError: (err) => { // a failed sentence shouldn't wipe the conversation
@@ -164,13 +179,14 @@ export function createAssistant(settings, ui) {
           if (!heardWhileSpeaking) { ui.onSpeaker('User'); showText(partial); }
         },
         onSpeechStart: () => {
-          heardWhileSpeaking = speaker.isSpeaking() || responding;
+          if (running) heardWhileSpeaking = speaker.isSpeaking() || reply !== null;
         },
         onSpeechCancel: () => { heardWhileSpeaking = false; },
         onStatus: ui.onStatus,
         onError: ui.onError,
       });
       await stt.start();
+      if (!running || session !== startingSession) return;
       ui.onStatus('Listening…');
 
       if (settings.llmFirstMessage) {
@@ -182,12 +198,15 @@ export function createAssistant(settings, ui) {
 
     stop() {
       running = false;
-      abort?.abort();
+      session++;
+      cancelReply();
       stt?.stop();
       speaker?.destroy();
       stt = null;
       speaker = null;
-      responding = false;
+      clearTimeout(textTimer);
+      textTimer = null;
+      pendingText = null;
     },
 
     // Mirrors Vapi's add-message: context the model sees on its next turn

@@ -18,31 +18,46 @@ export function createStt(settings, hooks) {
 function serverStt(settings, hooks) {
   let vad = null;
   let suppressed = false;
+  let session = null;
 
   return {
     async start() {
+      const controller = new AbortController();
+      session = controller;
+      const active = () => session === controller && !controller.signal.aborted;
       hooks.onStatus?.('Loading voice detection…');
-      vad = await createMicVad({
-        onSpeechStart: () => {
-          if (!suppressed) hooks.onSpeechStart?.();
-        },
-        onSpeechEnd: async (audio) => {
-          if (suppressed) return;
-          hooks.onStatus?.('Transcribing…');
-          try {
-            const text = await transcribe(audio);
-            if (text) hooks.onUtterance(text);
-            else hooks.onSpeechCancel?.();
-          } catch (err) {
-            hooks.onSpeechCancel?.();
-            hooks.onError?.(err);
-          }
-        },
-        onMisfire: () => hooks.onSpeechCancel?.(),
-      });
-      await vad.start();
+      try {
+        const instance = await createMicVad({
+          signal: controller.signal,
+          onSpeechStart: () => {
+            if (active() && !suppressed) hooks.onSpeechStart?.();
+          },
+          onSpeechEnd: async (audio) => {
+            if (!active() || suppressed) return;
+            hooks.onStatus?.('Transcribing…');
+            try {
+              const text = await transcribe(audio, controller.signal);
+              if (!active() || suppressed) return;
+              if (text) hooks.onUtterance(text);
+              else hooks.onSpeechCancel?.();
+            } catch (err) {
+              if (!active()) return;
+              hooks.onSpeechCancel?.();
+              hooks.onError?.(err);
+            }
+          },
+          onMisfire: () => { if (active()) hooks.onSpeechCancel?.(); },
+        });
+        // MicVAD.new starts capture before resolving. Dispose late arrivals.
+        if (!active()) { await instance.destroy(); return; }
+        vad = instance;
+      } catch (err) {
+        if (active()) throw err;
+      }
     },
     stop() {
+      session?.abort();
+      session = null;
       vad?.destroy();
       vad = null;
     },
@@ -52,11 +67,12 @@ function serverStt(settings, hooks) {
   };
 }
 
-async function transcribe(float32) {
+async function transcribe(float32, signal) {
   const res = await fetch('/api/assistant/stt', {
     method: 'POST',
     headers: { 'Content-Type': 'audio/wav' },
     body: encodeWav(float32, 16000),
+    signal,
   });
   if (!res.ok) throw new Error(`Transcription failed (${res.status}): ${await res.text()}`);
   const { text } = await res.json();
@@ -98,15 +114,17 @@ function browserStt(settings, hooks) {
   let recognition = null;
   let active = false;
   let suppressed = false;
+  let restartTimer = null;
 
   function listen() {
+    if (!active) return;
     recognition = new Recognition();
     recognition.continuous = true;
     recognition.interimResults = true;
     recognition.lang = settings.assistantLanguage || navigator.language;
 
     recognition.onresult = (event) => {
-      if (suppressed) return;
+      if (!active || suppressed) return;
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i];
         const text = result[0].transcript.trim();
@@ -120,6 +138,7 @@ function browserStt(settings, hooks) {
       }
     };
     recognition.onerror = (event) => {
+      if (!active) return;
       if (event.error === 'not-allowed') {
         active = false;
         hooks.onError?.(new Error('Microphone permission denied'));
@@ -128,8 +147,10 @@ function browserStt(settings, hooks) {
     };
     // Chrome ends continuous sessions after a while — keep listening
     recognition.onend = () => {
-      hooks.onSpeechCancel?.();
-      if (active) setTimeout(listen, 200);
+      if (active) {
+        hooks.onSpeechCancel?.();
+        restartTimer = setTimeout(listen, 200);
+      }
     };
     recognition.start();
   }
@@ -144,6 +165,7 @@ function browserStt(settings, hooks) {
     },
     stop() {
       active = false;
+      clearTimeout(restartTimer);
       recognition?.abort();
       recognition = null;
     },

@@ -31,21 +31,27 @@ export function loadKokoro(onProgress) {
   return loading;
 }
 
-/** Returns synth(text, audioCtx) → AudioBuffer. Generation is serialized. */
+/** Returns synth(text, audioCtx, signal) → AudioBuffer. Generation is serialized. */
 export function createKokoroSynth(settings, onStatus) {
   let chain = Promise.resolve();
   const voice = settings.ttsVoice || 'af_heart';
   const speed = Number(settings.ttsSpeed) || 1;
 
-  return async (text, audioCtx) => {
+  return async (text, audioCtx, signal) => {
+    signal?.throwIfAborted();
     const tts = await loadKokoro((p) => {
-      if (p.status === 'progress' && p.file?.endsWith('.onnx')) {
+      if (!signal?.aborted && p.status === 'progress' && p.file?.endsWith('.onnx')) {
         onStatus?.(`Loading voice model… ${Math.round(p.progress)}%`);
       }
     });
-    const run = chain.then(() => tts.generate(text, { voice, speed }));
+    signal?.throwIfAborted();
+    const run = chain.then(() => {
+      signal?.throwIfAborted();
+      return tts.generate(text, { voice, speed });
+    });
     chain = run.catch(() => {});
     const audio = await run;
+    signal?.throwIfAborted();
     const buffer = audioCtx.createBuffer(1, audio.audio.length, audio.sampling_rate);
     buffer.copyToChannel(audio.audio, 0);
     return buffer;

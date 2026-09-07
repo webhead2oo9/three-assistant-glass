@@ -851,6 +851,7 @@ function sendSystemMessageToVapi(content) {
 let assistantProvider = 'vapi';
 let assistantActive = false;
 let customAssistant = null;
+let assistantSession = 0;
 
 window.addEventListener('load', async () => {
   const response = await fetch('/api/settings');
@@ -912,9 +913,11 @@ async function toggleAssistant() {
   if (assistantProvider === 'vapi') {
     startVapi();
   } else {
+    const session = ++assistantSession;
     try {
-      await startCustomAssistant();
+      await startCustomAssistant(session);
     } catch (error) {
+      if (session !== assistantSession) return;
       console.error('Assistant failed to start:', error);
       updateTextMesh('Error: ' + error.message);
       stopCustomAssistant();
@@ -930,8 +933,9 @@ function setAssistantStatus(status) {
   if (el) el.textContent = status || '';
 }
 
-async function startCustomAssistant() {
+async function startCustomAssistant(session) {
   const settings = await fetch('/api/settings').then((r) => r.json());
+  if (session !== assistantSession) return;
   customAssistant = createAssistant(settings, {
     onText: updateTextMesh,
     onSpeaker: updateVrmNameDisplay,
@@ -947,6 +951,7 @@ async function startCustomAssistant() {
 }
 
 function stopCustomAssistant() {
+  assistantSession++;
   customAssistant?.stop();
   customAssistant = null;
   setAssistantStatus('');

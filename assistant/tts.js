@@ -1,7 +1,7 @@
 // Text-to-speech "speaker": an ordered playback queue fed one sentence at a
 // time. Synthesis for later sentences runs while earlier ones play, so the
 // character starts talking after the first sentence rather than the whole
-// reply. Surface: enqueue(text), cancel(), isSpeaking(), mouthLevel(), destroy().
+// reply. Surface: enqueue(text), cancel(), isBusy(), isSpeaking(), mouthLevel(), destroy().
 // hooks.onSentence(text) fires as each sentence starts playing so the UI can
 // show text in sync with the audio.
 //
@@ -35,11 +35,12 @@ export function cleanForSpeech(text) {
     .trim();
 }
 
-async function serverSynth(text, audioCtx) {
+async function serverSynth(text, audioCtx, signal) {
   const res = await fetch('/api/assistant/tts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text }),
+    signal,
   });
   if (!res.ok) throw new Error(`Speech synthesis failed (${res.status}): ${await res.text()}`);
   return audioCtx.decodeAudioData(await res.arrayBuffer());
@@ -59,6 +60,8 @@ function bufferSpeaker(synth, hooks) {
   let speaking = false;
   let pumping = false;    // single consumer keeps sentences in order
   let generation = 0;     // bumped on cancel so stale synth results are dropped
+  let synthesisAbort = new AbortController();
+  let destroyed = false;
 
   function play(buffer) {
     return new Promise((resolve) => {
@@ -77,32 +80,42 @@ function bufferSpeaker(synth, hooks) {
   async function pump() {
     if (pumping) return;
     pumping = true;
+    const gen = generation;
     try {
-      while (queue.length > 0) {
+      while (gen === generation && queue.length > 0) {
         const item = queue.shift();
-        const gen = generation;
         const buffer = await item.buffer; // later sentences keep synthesizing meanwhile
-        if (gen !== generation) continue; // cancelled while synthesizing
+        if (gen !== generation) return; // a new consumer owns the queue after cancel
         if (!speaking) { speaking = true; hooks.onStart?.(); }
         hooks.onSentence?.(item.text);    // show the text even if synthesis failed
         if (buffer) await play(buffer);
       }
     } finally {
-      pumping = false;
-      if (speaking && queue.length === 0) { speaking = false; hooks.onEnd?.(); }
+      if (gen === generation) {
+        pumping = false;
+        if (speaking && queue.length === 0) { speaking = false; hooks.onEnd?.(); }
+      }
     }
   }
 
   return {
     enqueue(text) {
+      if (destroyed) return;
       if (audioCtx.state === 'suspended') audioCtx.resume();
-      const buffer = synth(text, audioCtx).catch((err) => { hooks.onError?.(err); return null; });
+      const { signal } = synthesisAbort;
+      const buffer = synth(text, audioCtx, signal).catch((err) => {
+        if (!signal.aborted) hooks.onError?.(err);
+        return null;
+      });
       queue.push({ text, buffer });
       pump();
     },
     cancel() {
       generation++;
+      synthesisAbort.abort();
+      synthesisAbort = new AbortController();
       queue.length = 0;
+      pumping = false;
       if (playing) {
         const source = playing;
         playing = null;
@@ -111,6 +124,7 @@ function bufferSpeaker(synth, hooks) {
       if (speaking) { speaking = false; hooks.onEnd?.(); }
     },
     isSpeaking: () => speaking,
+    isBusy: () => pumping || speaking || queue.length > 0,
     mouthLevel() {
       if (!playing) return 0;
       analyser.getByteTimeDomainData(samples);
@@ -122,6 +136,7 @@ function bufferSpeaker(synth, hooks) {
       return Math.min(1, Math.sqrt(sum / samples.length) * 4);
     },
     destroy() {
+      destroyed = true;
       this.cancel();
       audioCtx.close();
     },
@@ -142,6 +157,7 @@ function browserSpeaker(settings, hooks) {
     if (voice) utterance.voice = voice;
     utterance.rate = Number(settings.ttsSpeed) || 1;
     utterance.onstart = () => {
+      if (current !== utterance) return;
       if (!speaking) { speaking = true; hooks.onStart?.(); }
       hooks.onSentence?.(utterance.text);
     };
@@ -166,6 +182,7 @@ function browserSpeaker(settings, hooks) {
       if (speaking) { speaking = false; hooks.onEnd?.(); }
     },
     isSpeaking: () => speaking,
+    isBusy: () => current !== null || queue.length > 0,
     // No audio graph to analyse — approximate a talking mouth
     mouthLevel: () => (speaking ? 0.3 + 0.3 * Math.abs(Math.sin(performance.now() / 90)) : 0),
     destroy() { this.cancel(); },
