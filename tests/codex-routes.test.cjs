@@ -156,6 +156,26 @@ test('voice creates an isolated thread, negotiates WebRTC and forwards only voic
   assert.deepEqual(h.client.calls.at(-1), { method: 'thread/realtime/appendText', params: { threadId: 'thread-1', role: 'developer', text: 'Clipboard context' } });
 });
 
+test('terminal backing-agent failures reach the browser and release voice, while retries stay connected', async t => {
+  const h = await harness(t);
+  const { id, events } = await allocate(h);
+  await h.request(`/sessions/${id}/start`, { sdp: 'v=0\r\noffer' });
+  await events.next(); // SDP answer
+  h.client.emit('notification', { method: 'error', params: {
+    threadId: 'another-thread', willRetry: false, error: { message: 'Unrelated failure' },
+  } });
+  h.client.emit('notification', { method: 'error', params: {
+    threadId: 'thread-1', willRetry: true, error: { message: 'Retrying' },
+  } });
+  assert.equal(h.client.calls.some(c => c.method === 'thread/realtime/stop'), false);
+  h.client.emit('notification', { method: 'error', params: {
+    threadId: 'thread-1', willRetry: false, error: { message: 'Voice handoff failed' },
+  } });
+  assert.deepEqual(await events.next(), { type: 'error', message: 'Voice handoff failed' });
+  await until(() => h.client.calls.some(c => c.method === 'thread/unsubscribe'));
+  assert.equal((await h.request(`/sessions/${id}/context`, { text: 'After failure' })).status, 404);
+});
+
 test('one browser owns voice, and closing its stream releases the Codex thread', async t => {
   const h = await harness(t);
   const { id, events } = await allocate(h);

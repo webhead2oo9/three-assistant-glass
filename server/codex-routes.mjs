@@ -80,9 +80,15 @@ export function createCodexRouter(client, { getSettings = () => ({}), attachTime
     if (message.method === 'account/login/completed' && login?.id === params.loginId) {
       login = { id: login.id, pending: false, error: params.success ? null : (params.error || 'Sign-in did not complete.') };
     }
-    if (!REALTIME_EVENTS.has(message.method)) return;
+    const terminalError = message.method === 'error' && params.willRetry === false;
+    if (!REALTIME_EVENTS.has(message.method) && !terminalError) return;
     const session = [...sessions.values()].find(s => s.threadId === params.threadId);
     if (!session || session.closed) return;
+    if (terminalError) {
+      emit(session, 'error', { message: params.error?.message || 'The Codex voice task failed. Try starting again.' });
+      void stop(session);
+      return;
+    }
     emit(session, message.method, params);
     if (message.method === 'thread/realtime/error' || message.method === 'thread/realtime/closed') void stop(session);
   });
