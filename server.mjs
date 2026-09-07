@@ -317,9 +317,17 @@ app.post('/api/assistant/tts', express.json(), async (req, res) => {
         }),
       });
       if (!upstream.ok) return upstreamError(res, upstream);
-      const result = await upstream.json(); // { audio: base64, content_type, duration }
-      res.type(result.content_type || 'audio/mpeg');
-      res.send(Buffer.from(result.audio, 'base64'));
+      // xAI returns the audio bytes directly; some docs describe a
+      // { audio: base64, content_type } JSON envelope — accept both.
+      const contentType = upstream.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const result = await upstream.json();
+        res.type(result.content_type || 'audio/mpeg');
+        res.send(Buffer.from(result.audio, 'base64'));
+      } else {
+        res.type(contentType || 'audio/mpeg');
+        res.send(Buffer.from(await upstream.arrayBuffer()));
+      }
     }
   } catch (error) {
     console.error('[assistant/tts]', error);
