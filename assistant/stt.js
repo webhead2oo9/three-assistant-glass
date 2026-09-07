@@ -1,7 +1,7 @@
 // Speech-to-text adapters. Every adapter exposes the same surface:
 //   start(), stop(), setSuppressed(bool)
 // and reports through hooks: onUtterance(text), onInterim(text),
-// onSpeechStart(), onStatus(text), onError(err).
+// onSpeechStart(), onSpeechCancel(), onStatus(text), onError(err).
 //
 //   xai / openai  → browser VAD segments speech, server proxy transcribes it
 //   browser       → Chrome's Web Speech API (zero install, audio goes to Google)
@@ -32,11 +32,13 @@ function serverStt(settings, hooks) {
           try {
             const text = await transcribe(audio);
             if (text) hooks.onUtterance(text);
-            else hooks.onStatus?.('Listening…');
+            else hooks.onSpeechCancel?.();
           } catch (err) {
+            hooks.onSpeechCancel?.();
             hooks.onError?.(err);
           }
         },
+        onMisfire: () => hooks.onSpeechCancel?.(),
       });
       await vad.start();
     },
@@ -126,6 +128,7 @@ function browserStt(settings, hooks) {
     };
     // Chrome ends continuous sessions after a while — keep listening
     recognition.onend = () => {
+      hooks.onSpeechCancel?.();
       if (active) setTimeout(listen, 200);
     };
     recognition.start();

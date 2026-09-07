@@ -2,6 +2,8 @@
 // time. Synthesis for later sentences runs while earlier ones play, so the
 // character starts talking after the first sentence rather than the whole
 // reply. Surface: enqueue(text), cancel(), isSpeaking(), mouthLevel(), destroy().
+// hooks.onSentence(text) fires as each sentence starts playing so the UI can
+// show text in sync with the audio.
 //
 //   xai / openai → server proxy (/api/assistant/tts) returns an audio file
 //   kokoro       → in-browser Kokoro-82M
@@ -63,9 +65,14 @@ function bufferSpeaker(synth, hooks) {
     const gen = generation;
     const buffer = await item.buffer;
     if (gen !== generation) return;
-    if (!buffer) { pump(); return; }
 
     if (!speaking) { speaking = true; hooks.onStart?.(); }
+    hooks.onSentence?.(item.text);
+    if (!buffer) { // synthesis failed — show the text, move on
+      if (queue.length === 0) { speaking = false; hooks.onEnd?.(); }
+      pump();
+      return;
+    }
     const source = audioCtx.createBufferSource();
     source.buffer = buffer;
     source.connect(analyser);
@@ -83,7 +90,7 @@ function bufferSpeaker(synth, hooks) {
     enqueue(text) {
       if (audioCtx.state === 'suspended') audioCtx.resume();
       const buffer = synth(text, audioCtx).catch((err) => { hooks.onError?.(err); return null; });
-      queue.push({ buffer });
+      queue.push({ text, buffer });
       pump();
     },
     cancel() {
@@ -129,6 +136,7 @@ function browserSpeaker(settings, hooks) {
     utterance.rate = Number(settings.ttsSpeed) || 1;
     utterance.onstart = () => {
       if (!speaking) { speaking = true; hooks.onStart?.(); }
+      hooks.onSentence?.(utterance.text);
     };
     const done = () => {
       if (current !== utterance) return;
