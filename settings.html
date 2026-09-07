@@ -22,6 +22,12 @@
             </button>
         </div>
         <div class="settings-tab-item">
+            <span class="settings-tab-label">Assistant</span>
+            <button class="settings-tab-button" data-tab="assistant-tab">
+                <img src="icons/audio-lines.svg" alt="Assistant" class="settings-tab-icon">
+            </button>
+        </div>
+        <div class="settings-tab-item">
             <span class="settings-tab-label">API Keys</span>
             <button class="settings-tab-button" data-tab="api-keys-tab">
                 <img src="icons/key-round.svg" alt="API Keys" class="settings-tab-icon">
@@ -127,6 +133,30 @@
                         <option value="">Select an animation</option>
                     </select>
                 </label>
+
+            </div>
+        </div>
+    </div>
+
+    <div id="assistant-tab" class="tab-content" style="background-color: #fbfbf7; padding: 10px; border-radius: 15px;">
+        <h1>
+            <img src="icons/sparkles.svg" alt="Provider" style="width: 40px; height: 40px; filter: invert(48%) sepia(79%) saturate(376%) hue-rotate(93deg) brightness(88%) contrast(84%); vertical-align: middle; margin-bottom: 5px;">
+            Provider
+        </h1>
+        <label class="switch">
+            <span>Voice Assistant</span>
+            <select id="assistantProvider" class="assistant-select">
+                <option value="vapi">Vapi (cloud)</option>
+                <option value="custom">Custom — xAI, OpenAI-compatible or local</option>
+            </select>
+            <span id="assistantSaveStatus">Saved</span>
+        </label>
+
+        <div id="vapiAssistantSection">
+            <span class="assistant-hint">
+                <img src="icons/lightbulb.svg" alt="" style="width: 20px; height: 20px; vertical-align: middle; margin-bottom: 5px;">
+                Vapi keys live in the API Keys tab
+            </span>
                 <h1>
                     <img src="icons/audio-lines.svg" alt="Flask Icon" style="width: 40px; height: 40px; filter: invert(48%) sepia(79%) saturate(376%) hue-rotate(93deg) brightness(88%) contrast(84%); vertical-align: middle; margin-bottom: 5px;">
                     Voice Assistant
@@ -162,7 +192,163 @@
                     <br>
                     <span id="firstMessage">Loading First Message...</span>
                 </span>
+        </div>
+
+        <div id="customAssistantSection" hidden>
+            <span class="assistant-hint">
+                <img src="icons/lightbulb.svg" alt="" style="width: 20px; height: 20px; vertical-align: middle; margin-bottom: 5px;">
+                Quick setup:
+                <button class="preset-button" data-preset="xai">xAI</button>
+                <button class="preset-button" data-preset="openai">OpenAI</button>
+                <button class="preset-button" data-preset="ollama">Ollama (local)</button>
+                <button class="preset-button" data-preset="lmstudio">LM Studio (local)</button>
+            </span>
+
+        <h1>
+            <img src="icons/message-circle-code.svg" alt="Language Model" style="width: 40px; height: 40px; filter: invert(48%) sepia(79%) saturate(376%) hue-rotate(93deg) brightness(88%) contrast(84%); vertical-align: middle; margin-bottom: 5px;">
+            Language Model
+        </h1>
+        <div class="input-container">
+            <label for="llmBaseUrl" style="font-size: 1.2em;">Base URL <span class="field-note">OpenAI-compatible</span></label>
+            <div class="input-wrapper">
+                <input type="text" id="llmBaseUrl" placeholder="https://api.x.ai/v1" class="rounded-input assistant-field">
             </div>
+        </div>
+        <div class="input-container">
+            <label for="llmApiKey" style="font-size: 1.2em;">API Key <span class="field-note">optional for local servers</span></label>
+            <div class="input-wrapper">
+                <input type="password" id="llmApiKey" placeholder="xai-… / sk-…" class="rounded-input assistant-field">
+                <button class="toggle-visibility" data-target="llmApiKey">
+                    <img src="icons/eye-off.svg" alt="Toggle Visibility" class="input-icon" style="vertical-align: middle;">
+                </button>
+            </div>
+        </div>
+        <div class="input-container">
+            <label for="llmModel" style="font-size: 1.2em;">Model</label>
+            <div class="input-wrapper">
+                <input type="text" id="llmModel" placeholder="grok-4.6" class="rounded-input assistant-field">
+            </div>
+        </div>
+        <div class="input-container">
+            <label for="llmSystemPrompt" style="font-size: 1.2em;">System Prompt</label>
+            <div class="input-wrapper">
+                <textarea id="llmSystemPrompt" class="rounded-input assistant-field" placeholder="You are a friendly voice assistant. Reply in short, natural spoken sentences without markdown."></textarea>
+            </div>
+        </div>
+        <div class="input-container">
+            <label for="llmFirstMessage" style="font-size: 1.2em;">First Message <span class="field-note">optional</span></label>
+            <div class="input-wrapper">
+                <input type="text" id="llmFirstMessage" placeholder="Hey there! How can I help?" class="rounded-input assistant-field">
+            </div>
+        </div>
+
+        <h1>
+            <img src="icons/audio-lines.svg" alt="Speech to Text" style="width: 40px; height: 40px; filter: invert(48%) sepia(79%) saturate(376%) hue-rotate(93deg) brightness(88%) contrast(84%); vertical-align: middle; margin-bottom: 5px;">
+            Speech to Text
+        </h1>
+        <label class="switch">
+            <span>Provider</span>
+            <select id="sttProvider" class="assistant-select">
+                <option value="xai">xAI</option>
+                <option value="openai">OpenAI-compatible (Whisper)</option>
+                <option value="browser">Browser (Chrome, no key)</option>
+            </select>
+        </label>
+        <span class="assistant-hint stt-browser-only" hidden>Uses Chrome's built-in recognition — audio is sent to Google. Zero setup, no key.</span>
+        <div class="stt-server-only">
+        <div class="input-container">
+            <label for="sttBaseUrl" style="font-size: 1.2em;">Base URL</label>
+            <div class="input-wrapper">
+                <input type="text" id="sttBaseUrl" placeholder="Same as LLM" class="rounded-input assistant-field">
+            </div>
+        </div>
+        <div class="input-container">
+            <label for="sttApiKey" style="font-size: 1.2em;">API Key</label>
+            <div class="input-wrapper">
+                <input type="password" id="sttApiKey" placeholder="Same as LLM" class="rounded-input assistant-field">
+                <button class="toggle-visibility" data-target="sttApiKey">
+                    <img src="icons/eye-off.svg" alt="Toggle Visibility" class="input-icon" style="vertical-align: middle;">
+                </button>
+            </div>
+        </div>
+            <div class="stt-openai-only">
+        <div class="input-container">
+            <label for="sttModel" style="font-size: 1.2em;">Model</label>
+            <div class="input-wrapper">
+                <input type="text" id="sttModel" placeholder="whisper-1" class="rounded-input assistant-field">
+            </div>
+        </div>
+            </div>
+        </div>
+
+        <h1>
+            <img src="icons/audio-lines.svg" alt="Text to Speech" style="width: 40px; height: 40px; filter: invert(48%) sepia(79%) saturate(376%) hue-rotate(93deg) brightness(88%) contrast(84%); vertical-align: middle; margin-bottom: 5px;">
+            Text to Speech
+        </h1>
+        <label class="switch">
+            <span>Provider</span>
+            <select id="ttsProvider" class="assistant-select">
+                <option value="xai">xAI</option>
+                <option value="openai">OpenAI-compatible</option>
+                <option value="kokoro">Kokoro in the browser (free, offline)</option>
+                <option value="browser">Browser voices (OS)</option>
+            </select>
+        </label>
+        <span class="assistant-hint tts-kokoro-only" hidden>Runs locally on your GPU/CPU. Downloads a ~90–330 MB model on first use, then works offline.</span>
+        <div class="tts-server-only">
+        <div class="input-container">
+            <label for="ttsBaseUrl" style="font-size: 1.2em;">Base URL</label>
+            <div class="input-wrapper">
+                <input type="text" id="ttsBaseUrl" placeholder="Same as LLM" class="rounded-input assistant-field">
+            </div>
+        </div>
+        <div class="input-container">
+            <label for="ttsApiKey" style="font-size: 1.2em;">API Key</label>
+            <div class="input-wrapper">
+                <input type="password" id="ttsApiKey" placeholder="Same as LLM" class="rounded-input assistant-field">
+                <button class="toggle-visibility" data-target="ttsApiKey">
+                    <img src="icons/eye-off.svg" alt="Toggle Visibility" class="input-icon" style="vertical-align: middle;">
+                </button>
+            </div>
+        </div>
+            <div class="tts-openai-only">
+        <div class="input-container">
+            <label for="ttsModel" style="font-size: 1.2em;">Model</label>
+            <div class="input-wrapper">
+                <input type="text" id="ttsModel" placeholder="tts-1" class="rounded-input assistant-field">
+            </div>
+        </div>
+            </div>
+        </div>
+        <div class="input-container">
+            <label for="ttsVoice" style="font-size: 1.2em;">Voice</label>
+            <div class="input-wrapper">
+                <input type="text" id="ttsVoice" list="ttsVoiceOptions" placeholder="eve" class="rounded-input assistant-field" autocomplete="off">
+                <datalist id="ttsVoiceOptions"></datalist>
+            </div>
+        </div>
+        <div class="input-container">
+            <label for="ttsSpeed" style="font-size: 1.2em;">Speed <span class="field-note">0.7 – 1.5</span></label>
+            <div class="input-wrapper">
+                <input type="text" id="ttsSpeed" placeholder="1.0" class="rounded-input assistant-field">
+            </div>
+        </div>
+
+        <h1>
+            <img src="icons/flask-round.svg" alt="Conversation" style="width: 40px; height: 40px; filter: invert(48%) sepia(79%) saturate(376%) hue-rotate(93deg) brightness(88%) contrast(84%); vertical-align: middle; margin-bottom: 5px;">
+            Conversation
+        </h1>
+        <div class="input-container">
+            <label for="assistantLanguage" style="font-size: 1.2em;">Language <span class="field-note">e.g. en, fr, de</span></label>
+            <div class="input-wrapper">
+                <input type="text" id="assistantLanguage" placeholder="auto" class="rounded-input assistant-field">
+            </div>
+        </div>
+        <label class="switch">
+            <span>Allow interrupting the character (barge-in)</span>
+            <input type="checkbox" id="bargeIn" class="assistant-toggle">
+            <span class="slider"></span>
+        </label>
         </div>
     </div>
 

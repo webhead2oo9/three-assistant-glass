@@ -326,3 +326,125 @@ document.addEventListener('DOMContentLoaded', () => {
     const shortcutInput = document.getElementById('assistantShortcut');
     shortcutInput.addEventListener('keydown', handleShortcutInput);
 });
+// ─── Assistant tab ────────────────────────────────────────────────────────────
+
+const ASSISTANT_TEXT_FIELDS = [
+    'llmBaseUrl', 'llmApiKey', 'llmModel', 'llmSystemPrompt', 'llmFirstMessage',
+    'sttBaseUrl', 'sttApiKey', 'sttModel',
+    'ttsBaseUrl', 'ttsApiKey', 'ttsModel', 'ttsVoice', 'ttsSpeed',
+    'assistantLanguage',
+];
+const ASSISTANT_SELECTS = ['assistantProvider', 'sttProvider', 'ttsProvider'];
+const ASSISTANT_TOGGLES = ['bargeIn'];
+
+const ASSISTANT_PRESETS = {
+    xai:      { llmBaseUrl: 'https://api.x.ai/v1', llmModel: 'grok-4.6', sttProvider: 'xai', ttsProvider: 'xai', ttsVoice: 'eve', sttBaseUrl: '', ttsBaseUrl: '' },
+    openai:   { llmBaseUrl: 'https://api.openai.com/v1', llmModel: 'gpt-4o-mini', sttProvider: 'openai', sttModel: 'whisper-1', ttsProvider: 'openai', ttsModel: 'tts-1', ttsVoice: 'alloy', sttBaseUrl: '', ttsBaseUrl: '' },
+    ollama:   { llmBaseUrl: 'http://localhost:11434/v1', llmModel: 'llama3.2', sttProvider: 'browser', ttsProvider: 'kokoro', ttsVoice: 'af_heart' },
+    lmstudio: { llmBaseUrl: 'http://localhost:1234/v1', llmModel: '', sttProvider: 'browser', ttsProvider: 'kokoro', ttsVoice: 'af_heart' },
+};
+
+const STATIC_VOICES = {
+    openai: ['alloy', 'ash', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer'],
+    kokoro: ['af_heart', 'af_bella', 'af_nicole', 'af_sarah', 'af_sky', 'am_adam', 'am_michael', 'am_fenrir',
+             'bf_emma', 'bf_isabella', 'bm_george', 'bm_lewis', 'bm_fable'],
+};
+
+async function saveSettingsBatch(values) {
+    await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(values),
+    });
+    flashSaved();
+}
+
+let savedTimer;
+function flashSaved() {
+    const status = document.getElementById('assistantSaveStatus');
+    status.classList.add('visible');
+    clearTimeout(savedTimer);
+    savedTimer = setTimeout(() => status.classList.remove('visible'), 1200);
+}
+
+function setHidden(selector, hidden) {
+    document.querySelectorAll(selector).forEach(el => { el.hidden = hidden; });
+}
+
+function updateAssistantUI() {
+    const provider = document.getElementById('assistantProvider').value;
+    document.getElementById('vapiAssistantSection').hidden = provider !== 'vapi';
+    document.getElementById('customAssistantSection').hidden = provider !== 'custom';
+
+    const stt = document.getElementById('sttProvider').value;
+    setHidden('.stt-server-only', stt === 'browser');
+    setHidden('.stt-openai-only', stt !== 'openai');
+    setHidden('.stt-browser-only', stt !== 'browser');
+
+    const tts = document.getElementById('ttsProvider').value;
+    setHidden('.tts-server-only', tts === 'kokoro' || tts === 'browser');
+    setHidden('.tts-openai-only', tts !== 'openai');
+    setHidden('.tts-kokoro-only', tts !== 'kokoro');
+    document.getElementById('ttsVoice').placeholder =
+        { xai: 'eve', openai: 'alloy', kokoro: 'af_heart', browser: 'System default' }[tts] || '';
+    loadVoiceOptions(tts);
+}
+
+async function loadVoiceOptions(provider) {
+    const datalist = document.getElementById('ttsVoiceOptions');
+    let voices = STATIC_VOICES[provider] || [];
+    if (provider === 'browser') {
+        voices = speechSynthesis.getVoices().map(v => v.name);
+        if (!voices.length) {
+            speechSynthesis.addEventListener('voiceschanged', () => loadVoiceOptions('browser'), { once: true });
+        }
+    } else if (provider === 'xai') {
+        try {
+            const { voices: list = [] } = await fetch('/api/assistant/voices').then(r => r.json());
+            voices = list.map(v => v.id);
+        } catch (err) {
+            console.error('Error loading voices:', err);
+        }
+    }
+    datalist.innerHTML = voices.map(v => `<option value="${v}"></option>`).join('');
+}
+
+async function initAssistantTab() {
+    const settings = await fetch('/api/settings').then(res => res.json());
+
+    ASSISTANT_TEXT_FIELDS.forEach(id => {
+        document.getElementById(id).value = settings[id] ?? '';
+    });
+    document.getElementById('assistantProvider').value = settings.assistantProvider || 'vapi';
+    document.getElementById('sttProvider').value = settings.sttProvider || 'xai';
+    document.getElementById('ttsProvider').value = settings.ttsProvider || 'xai';
+    document.getElementById('bargeIn').checked = settings.bargeIn !== false;
+    updateAssistantUI();
+
+    ASSISTANT_TEXT_FIELDS.forEach(id => {
+        document.getElementById(id).addEventListener('change', (e) => saveSettingsBatch({ [id]: e.target.value }));
+    });
+    ASSISTANT_SELECTS.forEach(id => {
+        document.getElementById(id).addEventListener('change', async (e) => {
+            await saveSettingsBatch({ [id]: e.target.value });
+            updateAssistantUI();
+            if (id === 'assistantProvider' && e.target.value === 'vapi') loadAssistants();
+        });
+    });
+    ASSISTANT_TOGGLES.forEach(id => {
+        document.getElementById(id).addEventListener('change', (e) => saveSettingsBatch({ [id]: e.target.checked }));
+    });
+
+    document.querySelectorAll('.preset-button').forEach(button => {
+        button.addEventListener('click', async () => {
+            const preset = ASSISTANT_PRESETS[button.dataset.preset];
+            Object.entries(preset).forEach(([id, value]) => {
+                document.getElementById(id).value = value;
+            });
+            await saveSettingsBatch(preset);
+            updateAssistantUI();
+        });
+    });
+}
+
+initAssistantTab();

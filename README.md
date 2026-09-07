@@ -18,6 +18,14 @@ Customizable 3D conversational AI character
 - Function Calling
 - Audio Recording
 
+### Voice Assistant - Custom (xAI, OpenAI-compatible or fully local)
+
+- Bring your own key: [xAI](https://console.x.ai/) (Grok + xAI speech), [OpenAI](https://platform.openai.com/), or any OpenAI-compatible server
+- Or run everything on your machine: [Ollama](https://ollama.com/) / [LM Studio](https://lmstudio.ai/) for the model, Kokoro in the browser for the voice
+- Streams speech sentence-by-sentence so the character starts talking while the model is still writing
+- Interruptions (barge-in) with on-device voice activity detection
+- Works on Windows, macOS and Linux — no native dependencies
+
 ### Character - [three-vrm](https://github.com/pixiv/three-vrm)
 
 - Custom 3D model ([vrm](https://hub.vroid.com/en))
@@ -72,6 +80,27 @@ Customizable 3D conversational AI character
 7. Pick a character model and voice assistant ([Create an assistant on Vapi](https://dashboard.vapi.ai/assistants) first if you haven't already)
 
 8. Go back to http://localhost:3000/settings and click ▶️ to start the assistant
+
+## Use a Custom Assistant (xAI, OpenAI or local)
+
+Instead of Vapi you can wire the character to your own model and voices. Everything goes through the local server, so API keys never reach the browser and local servers need no CORS setup.
+
+1. Open Settings → **Assistant** and switch *Voice Assistant* to **Custom**
+2. Pick a quick-setup preset, or fill in the fields:
+   - **xAI** — paste your key from [console.x.ai](https://console.x.ai/team/default/api-keys). Grok for chat, xAI speech-to-text and text-to-speech (voices `eve`, `ara`, `rex`, …). One key does everything.
+   - **OpenAI** — any OpenAI-compatible endpoint: OpenAI itself, Groq, or a local server such as [speaches](https://github.com/speaches-ai/speaches) for Whisper + Kokoro
+   - **Ollama / LM Studio** — local model, with the browser doing speech-to-text (Chrome) and Kokoro doing text-to-speech in the browser. No keys, no cloud.
+3. Speech-to-text and text-to-speech default to the language model's URL and key; override them to mix providers (e.g. Ollama for chat, xAI for voice)
+4. Press ▶️ and allow microphone access. Toggle *barge-in* off if the character keeps interrupting itself on a loud speaker setup.
+
+| Provider | Speech-to-text | Text-to-speech | Notes |
+|---|---|---|---|
+| xAI | `POST /v1/stt` | `POST /v1/tts` | Cheapest hosted option; one key |
+| OpenAI-compatible | `/v1/audio/transcriptions` | `/v1/audio/speech` | OpenAI, Groq, speaches, Kokoro-FastAPI, LocalAI… |
+| Browser | Chrome Web Speech | OS voices | Zero setup; Chrome sends audio to Google |
+| Kokoro | — | In-browser Kokoro-82M | Free and offline after a one-time ~90–330 MB download |
+
+Coming next: xAI's realtime speech-to-speech (`grok-voice`) as a third provider alongside Vapi and Custom.
 
 ## View on a Looking Glass Display
 

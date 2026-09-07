@@ -7,6 +7,7 @@ import { SVGLoader } from 'three/addons/loaders/SVGLoader.js';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { LookingGlassWebXRPolyfill, LookingGlassConfig } from "@lookingglass/webxr"
 import { VRButton } from "three/addons/webxr/VRButton.js";
+import { createAssistant } from './assistant/pipeline.js';
 
 // Set up renderer to use full screen
 const renderer = new THREE.WebGLRenderer();
@@ -197,7 +198,7 @@ async function loadGearsIfEnabled() {
 
         if (intersects.length > 0) {
           // Open URL in a small popup window
-          window.open('http://localhost:3000/settings', 'popupWindow', 'width=950,height=908,scrollbars=yes,resizable=yes'); // Adjust width and height as needed
+          window.open('/settings', 'popupWindow', 'width=950,height=908,scrollbars=yes,resizable=yes'); // Adjust width and height as needed
         }
       });
     }, undefined, (error) => {
@@ -674,6 +675,9 @@ function animate() {
 
   if (currentVrm) {
     updateBlink(deltaTime);
+    if (customAssistant) {
+      currentVrm.expressionManager.setValue('aa', customAssistant.mouthLevel());
+    }
     currentVrm.update(deltaTime);
   }
 
@@ -832,7 +836,7 @@ async function initializeVapi() {
 
 // Add this function to send system messages to Vapi
 function sendSystemMessageToVapi(content) {
-  if (vapiActive && vapi) {
+  if (assistantActive && vapi) {
     vapi.send({
       type: "add-message",
       message: {
@@ -843,20 +847,26 @@ function sendSystemMessageToVapi(content) {
   }
 }
 
-// Update the socket.onmessage function
+// Which assistant runs is chosen in Settings → Assistant
+let assistantProvider = 'vapi';
+let assistantActive = false;
+let customAssistant = null;
+
 window.addEventListener('load', async () => {
-  initializeVapi();
-
-  document.getElementById('toggleVapi').addEventListener('click', toggleVapi);
-
-  // Fetch the assistantShortcut from settings
   const response = await fetch('/api/settings');
   const settings = await response.json();
-  const assistantShortcut = settings.assistantShortcut;
+  assistantProvider = settings.assistantProvider || 'vapi';
 
+  if (assistantProvider === 'vapi') {
+    initializeVapi();
+  }
+
+  document.getElementById('toggleVapi').addEventListener('click', toggleAssistant);
+
+  const assistantShortcut = settings.assistantShortcut;
   document.addEventListener('keydown', (e) => {
     if (e.key === assistantShortcut) {
-      toggleVapi();
+      toggleAssistant();
     }
   });
 
@@ -872,27 +882,78 @@ window.addEventListener('load', async () => {
         clipboardAlert.style.display = 'none';
       }, 5000);
 
-      // Send clipboard content to Vapi as a system message
+      // Let the assistant see the clipboard as a system message
       const systemMessage = `User's clipboard updated: ${data.content}`;
-      sendSystemMessageToVapi(systemMessage);
+      if (customAssistant) {
+        customAssistant.addSystemMessage(systemMessage);
+      } else {
+        sendSystemMessageToVapi(systemMessage);
+      }
     }
   };
 });
 
-let vapiActive = false;
-
-function toggleVapi() {
+async function toggleAssistant() {
   const toggleButton = document.getElementById('toggleVapi');
-  
-  if (vapiActive) {
-    stopVapi();
+
+  if (assistantActive) {
+    if (assistantProvider === 'vapi') {
+      stopVapi();
+    } else {
+      stopCustomAssistant();
+    }
     toggleButton.textContent = '▶️';
-    vapiActive = false;
-  } else {
-    startVapi();
-    toggleButton.textContent = '🛑';
-    vapiActive = true;
+    assistantActive = false;
+    return;
   }
+
+  toggleButton.textContent = '🛑';
+  assistantActive = true;
+  if (assistantProvider === 'vapi') {
+    startVapi();
+  } else {
+    try {
+      await startCustomAssistant();
+    } catch (error) {
+      console.error('Assistant failed to start:', error);
+      updateTextMesh('Error: ' + error.message);
+      stopCustomAssistant();
+      toggleButton.textContent = '▶️';
+      assistantActive = false;
+    }
+  }
+}
+
+// Custom (xAI / OpenAI-compatible / local) assistant
+function setAssistantStatus(status) {
+  const el = document.getElementById('assistantStatus');
+  if (el) el.textContent = status || '';
+}
+
+async function startCustomAssistant() {
+  const settings = await fetch('/api/settings').then((r) => r.json());
+  customAssistant = createAssistant(settings, {
+    onText: updateTextMesh,
+    onSpeaker: updateVrmNameDisplay,
+    onStatus: setAssistantStatus,
+    onError: (error) => {
+      console.error('[assistant]', error);
+      updateTextMesh('Error: ' + error.message);
+      setAssistantStatus('Error');
+    },
+  });
+  updateVrmNameDisplay('Character');
+  await customAssistant.start();
+}
+
+function stopCustomAssistant() {
+  customAssistant?.stop();
+  customAssistant = null;
+  setAssistantStatus('');
+  if (currentVrm) {
+    currentVrm.expressionManager.setValue('aa', 0);
+  }
+  updateTextMesh('Session ended.');
 }
 
 // Add these functions to start and stop Vapi

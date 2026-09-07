@@ -112,7 +112,12 @@ app.post('/api/settings', express.json(), async (req, res) => {
       'clipboardAccess', 'vapiPublicKey', 'vapiPrivateKey',
       'showTime', 'timeFormat', 'freeCamera', 'sceneDebug',
       'dragDropSupport', 'vrmDebug', 'animationPicker', 'idleAnimation',
-      'characterName', 'assistantID', 'settingsIconToggle', 'assistantShortcut'  // Add assistantShortcut here
+      'characterName', 'assistantID', 'settingsIconToggle', 'assistantShortcut',
+      // Custom assistant (Settings → Assistant)
+      'assistantProvider', 'assistantLanguage', 'bargeIn',
+      'llmBaseUrl', 'llmApiKey', 'llmModel', 'llmSystemPrompt', 'llmFirstMessage',
+      'sttProvider', 'sttBaseUrl', 'sttApiKey', 'sttModel',
+      'ttsProvider', 'ttsBaseUrl', 'ttsApiKey', 'ttsModel', 'ttsVoice', 'ttsSpeed',
     ];
 
     possibleSettings.forEach(setting => {
@@ -175,6 +180,167 @@ app.post('/api/upload-characters', upload.array('characters'), async (req, res) 
   } catch (error) {
     console.error('Error processing uploaded files:', error);
     res.status(500).json({ error: 'Failed to process uploaded files' });
+  }
+});
+
+// ─── Custom assistant proxies ─────────────────────────────────────────────────
+// The browser never talks to the LLM / STT / TTS providers directly: keys stay
+// in settings.json on this machine and local servers (Ollama, LM Studio,
+// speaches…) need no CORS configuration. STT and TTS fall back to the LLM's
+// base URL and key, so a single xAI or OpenAI key configures everything.
+
+const DEFAULT_LLM_BASE_URL = 'https://api.x.ai/v1';
+
+function trimSlash(url) {
+  return url.replace(/\/+$/, '');
+}
+
+function llmConfig() {
+  return {
+    baseUrl: trimSlash(settings.llmBaseUrl || DEFAULT_LLM_BASE_URL),
+    apiKey: settings.llmApiKey || '',
+    model: settings.llmModel || 'grok-4.6',
+  };
+}
+
+function audioConfig(kind) {
+  const llm = llmConfig();
+  return {
+    provider: settings[`${kind}Provider`] || 'xai',
+    baseUrl: trimSlash(settings[`${kind}BaseUrl`] || llm.baseUrl),
+    apiKey: settings[`${kind}ApiKey`] || llm.apiKey,
+    model: settings[`${kind}Model`] || '',
+    voice: settings.ttsVoice || '',
+    speed: Number(settings.ttsSpeed) || 1,
+    language: settings.assistantLanguage || '',
+  };
+}
+
+function authHeaders(apiKey) {
+  return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+}
+
+async function upstreamError(res, upstream) {
+  const body = await upstream.text();
+  console.error(`[assistant] upstream ${upstream.status}: ${body.slice(0, 500)}`);
+  res.status(upstream.status).type('text/plain').send(body);
+}
+
+// Streams an OpenAI-compatible chat completion back as SSE
+app.post('/api/assistant/chat', express.json({ limit: '1mb' }), async (req, res) => {
+  const { baseUrl, apiKey, model } = llmConfig();
+  // Cancel the upstream stream if the browser goes away mid-response
+  // (res 'close' fires on disconnect; req 'close' would fire once the body is read)
+  const controller = new AbortController();
+  res.on('close', () => { if (!res.writableFinished) controller.abort(); });
+
+  try {
+    const upstream = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders(apiKey) },
+      body: JSON.stringify({ model, messages: req.body.messages || [], stream: true }),
+      signal: controller.signal,
+    });
+    if (!upstream.ok) return upstreamError(res, upstream);
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.flushHeaders();
+    for await (const chunk of upstream.body) res.write(chunk);
+    res.end();
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    console.error('[assistant/chat]', error);
+    if (!res.headersSent) res.status(502).json({ error: error.message });
+    else res.end();
+  }
+});
+
+// Transcribes a WAV body. xAI: POST /stt — OpenAI-compatible: POST /audio/transcriptions
+app.post('/api/assistant/stt', express.raw({ type: ['audio/*', 'application/octet-stream'], limit: '25mb' }), async (req, res) => {
+  const cfg = audioConfig('stt');
+  const form = new FormData();
+  let url;
+  if (cfg.provider === 'openai') {
+    url = `${cfg.baseUrl}/audio/transcriptions`;
+    form.append('model', cfg.model || 'whisper-1');
+    form.append('response_format', 'json');
+  } else {
+    url = `${cfg.baseUrl}/stt`;
+  }
+  if (cfg.language) form.append('language', cfg.language);
+  form.append('file', new Blob([req.body], { type: 'audio/wav' }), 'audio.wav'); // xAI requires file last
+
+  try {
+    const upstream = await fetch(url, { method: 'POST', headers: authHeaders(cfg.apiKey), body: form });
+    if (!upstream.ok) return upstreamError(res, upstream);
+    const result = await upstream.json();
+    res.json({ text: result.text || '' });
+  } catch (error) {
+    console.error('[assistant/stt]', error);
+    res.status(502).json({ error: error.message });
+  }
+});
+
+// Synthesizes speech for one sentence and returns the audio file
+app.post('/api/assistant/tts', express.json(), async (req, res) => {
+  const cfg = audioConfig('tts');
+  const text = (req.body.text || '').trim();
+  if (!text) return res.status(400).json({ error: 'No text' });
+
+  try {
+    if (cfg.provider === 'openai') {
+      const upstream = await fetch(`${cfg.baseUrl}/audio/speech`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders(cfg.apiKey) },
+        body: JSON.stringify({
+          model: cfg.model || 'tts-1',
+          input: text,
+          voice: cfg.voice || 'alloy',
+          response_format: 'wav',
+          speed: Math.min(4, Math.max(0.25, cfg.speed)),
+        }),
+      });
+      if (!upstream.ok) return upstreamError(res, upstream);
+      res.type(upstream.headers.get('content-type') || 'audio/wav');
+      res.send(Buffer.from(await upstream.arrayBuffer()));
+    } else {
+      const upstream = await fetch(`${cfg.baseUrl}/tts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders(cfg.apiKey) },
+        body: JSON.stringify({
+          text,
+          voice_id: cfg.voice || 'eve',
+          language: cfg.language || 'auto',
+          speed: Math.min(1.5, Math.max(0.7, cfg.speed)),
+          output_format: { codec: 'mp3', sample_rate: 24000, bit_rate: 96000 },
+        }),
+      });
+      if (!upstream.ok) return upstreamError(res, upstream);
+      const result = await upstream.json(); // { audio: base64, content_type, duration }
+      res.type(result.content_type || 'audio/mpeg');
+      res.send(Buffer.from(result.audio, 'base64'));
+    }
+  } catch (error) {
+    console.error('[assistant/tts]', error);
+    res.status(502).json({ error: error.message });
+  }
+});
+
+// Voice list for the settings page (xAI only; other providers use fixed lists)
+app.get('/api/assistant/voices', async (req, res) => {
+  const cfg = audioConfig('tts');
+  if (cfg.provider !== 'xai') return res.json({ voices: [] });
+  try {
+    const upstream = await fetch(`${cfg.baseUrl}/tts/voices`, { headers: authHeaders(cfg.apiKey) });
+    if (!upstream.ok) return upstreamError(res, upstream);
+    const result = await upstream.json();
+    res.json({
+      voices: (result.voices || []).map((v) => ({ id: v.voice_id, name: v.name || v.voice_id, language: v.language || '' })),
+    });
+  } catch (error) {
+    console.error('[assistant/voices]', error);
+    res.status(502).json({ error: error.message });
   }
 });
 

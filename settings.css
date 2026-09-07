@@ -287,3 +287,58 @@ h1 {
     background-color: #fbfbf7;
     color: #1d3c34;
 }
+/* Assistant tab */
+
+.settings-tab-container {
+    max-width: 240px;
+}
+
+textarea.rounded-input {
+    width: 500px;
+    min-height: 90px;
+    resize: vertical;
+    font-family: 'Mali', cursive;
+    padding: 10px 15px;
+    box-sizing: content-box;
+}
+
+.field-note {
+    font-size: 0.75em;
+    font-weight: normal;
+    opacity: 0.7;
+}
+
+.assistant-hint {
+    display: block;
+    font-size: 1.1em;
+    margin: -10px 0 16px;
+}
+
+.preset-button {
+    padding: 5px 14px;
+    border-radius: 16px;
+    border: 1px solid #4B9560;
+    background-color: #fbfbf7;
+    color: #1d3c34;
+    font-family: 'Mali', cursive;
+    font-size: 0.95em;
+    cursor: pointer;
+    margin: 2px 4px 2px 0;
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.preset-button:hover {
+    background-color: #4B9560;
+    color: #fbfbf7;
+}
+
+#assistantSaveStatus {
+    margin-left: 12px;
+    color: #4B9560;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+#assistantSaveStatus.visible {
+    opacity: 1;
+}
