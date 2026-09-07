@@ -1,3 +1,4 @@
+import { createEmotionService, createEmotionRouter } from './server/emotions.mjs';
 import express from 'express';
 import path from 'path';
 import fs from 'fs/promises';
@@ -73,6 +74,8 @@ async function loadOrCreateSettings() {
 // Call this function before setting up routes
 await loadOrCreateSettings();
 
+const emotionService = createEmotionService();
+app.use('/api/emotions', createEmotionRouter(emotionService, () => settings));
 const codexClient = new CodexClient();
 app.use('/api/codex', createCodexRouter(codexClient, { getSettings: () => settings }));
 
@@ -126,7 +129,7 @@ app.post('/api/settings', express.json(), (req, res, next) => {
       'llmBaseUrl', 'llmApiKey', 'llmModel', 'llmSystemPrompt', 'llmFirstMessage',
       'sttProvider', 'sttBaseUrl', 'sttApiKey', 'sttModel',
       'ttsProvider', 'ttsBaseUrl', 'ttsApiKey', 'ttsModel', 'ttsVoice', 'ttsSpeed',
-      'codexInstructions', 'codexModel', 'codexVoice', 'codexWorkspace', 'codexTaskModel',
+      'codexInstructions', 'codexModel', 'codexVoice', 'codexWorkspace', 'codexTaskModel', 'codexAutoExpressions',
     ];
 
     possibleSettings.forEach(setting => {
@@ -137,6 +140,7 @@ app.post('/api/settings', express.json(), (req, res, next) => {
     
     await fs.writeFile(settingsPath, JSON.stringify(currentSettings, null, 2));
     settings = currentSettings;
+    if (settings.codexAutoExpressions !== true) emotionService.close();
     res.json({ success: true });
   } catch (error) {
     console.error('Error updating settings:', error);

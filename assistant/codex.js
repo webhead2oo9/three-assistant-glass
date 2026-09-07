@@ -1,3 +1,4 @@
+import { createAutomaticExpressions } from './automatic-expressions.js';
 import { codexRequest } from './codex-api.js';
 import { createCodexTaskHandler } from './codex-tasks.js';
 
@@ -21,6 +22,7 @@ async function finishIceGathering(connection, signal) {
 // The browser owns the media; our local server only bridges the Codex control
 // protocol. OAuth tokens never enter the page or the app's settings JSON.
 export function createCodexAssistant(settings, ui) {
+  const expressions = createAutomaticExpressions(ui);
   let running = false;
   let connected = false;
   let established = false;
@@ -65,6 +67,7 @@ export function createCodexAssistant(settings, ui) {
   }
 
   function stop(reason) {
+    expressions.stop();
     running = false;
     connected = false;
     established = false;
@@ -97,6 +100,7 @@ export function createCodexAssistant(settings, ui) {
   return {
     async start() {
       if (running) return;
+      void expressions.setEnabled(settings.codexAutoExpressions === true);
       running = true;
       const run = new AbortController();
       controller = run;
@@ -242,9 +246,11 @@ export function createCodexAssistant(settings, ui) {
             case 'thread/realtime/transcript/done': {
               if (!['user', 'assistant'].includes(message.role)) break;
               const done = message.type.endsWith('/done');
+              const newTurn = !done && !transcripts.has(message.role);
               const text = (done ? message.text : (transcripts.get(message.role) || '') + message.delta).slice(-12000);
               if (done) transcripts.delete(message.role);
               else transcripts.set(message.role, text);
+              if (message.role === 'assistant') expressions.transcript(text, newTurn);
               // User transcription can arrive after assistant output starts.
               // Finish collecting it without replacing the streaming reply.
               if (message.role === 'user' && transcripts.has('assistant')) break;
@@ -267,6 +273,8 @@ export function createCodexAssistant(settings, ui) {
     },
 
     stop,
+    setAutomaticExpressions: value => expressions.setEnabled(value === true),
+    resetExpressions: () => expressions.reset(),
 
     addSystemMessage(text) {
       if (!connected || !sessionId || !text.trim()) return;

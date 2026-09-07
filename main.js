@@ -1,3 +1,4 @@
+import { createExpressionController } from './assistant/expressions.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -50,6 +51,7 @@ let defaultModelUrl = 'characters/AvatarSample_A.vrm'; // ships with the repo; o
 let currentSettings = {};
 
 let currentVrm = undefined;
+const characterExpressions = createExpressionController();
 let currentAnimationUrl = undefined;
 let currentMixer = undefined;
 let currentAnimationName = 'idleFemale.fbx'; // Start with idle animation name
@@ -83,6 +85,10 @@ function checkSettingsChanges() {
   fetch('/api/settings')
     .then(response => response.json())
     .then(newSettings => {
+      if (newSettings.codexAutoExpressions !== currentSettings.codexAutoExpressions) {
+        currentSettings.codexAutoExpressions = newSettings.codexAutoExpressions;
+        customAssistant?.setAutomaticExpressions?.(newSettings.codexAutoExpressions === true);
+      }
       if (JSON.stringify(newSettings) !== JSON.stringify(currentSettings)) {
         console.log('Settings have changed. Reloading page...');
         location.reload();
@@ -319,7 +325,9 @@ async function loadVRM(modelUrl, modelName) {
                 VRMUtils.deepDispose(currentVrm.scene);
             }
 
+            characterExpressions.bind(vrm.expressionManager);
             currentVrm = vrm;
+            customAssistant?.resetExpressions?.();
             //currentVrm.renderOrder = 10;
             scene.add(vrm.scene);
 
@@ -679,6 +687,7 @@ function animate() {
     if (customAssistant) {
       currentVrm.expressionManager.setValue('aa', customAssistant.mouthLevel());
     }
+    characterExpressions.update(deltaTime);
     currentVrm.update(deltaTime);
   }
 
@@ -943,6 +952,10 @@ async function startCustomAssistant(session) {
     onText: updateTextMesh,
     onSpeaker: updateVrmNameDisplay,
     onStatus: setAssistantStatus,
+    getExpressions: () => characterExpressions.supported(),
+    onExpression: command => characterExpressions.apply(command),
+    onExpressionReset: () => characterExpressions.reset(),
+    onExpressionStatus: text => { document.getElementById('expressionStatus').textContent = text; },
     onError: (error) => {
       console.error('[assistant]', error);
       updateTextMesh('Error: ' + error.message);

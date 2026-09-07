@@ -198,6 +198,12 @@
         <div id="codexAssistantSection" hidden>
             <h1>ChatGPT voice</h1>
             <p class="assistant-hint">Talk with the character using your ChatGPT account. Realtime voice is experimental and availability depends on your account.</p>
+            <label class="switch" for="codexAutoExpressions">
+                <span>Automatic expressions (experimental)</span>
+                <input type="checkbox" id="codexAutoExpressions" class="assistant-toggle">
+                <span class="slider round"></span>
+            </label>
+            <p class="assistant-hint">Estimate facial expressions from the character’s English replies. Runs locally; first use downloads a roughly 125 MB model. Voice continues while it loads.</p>
             <p id="codexAccountStatus" role="status" aria-live="polite">Checking sign-in…</p>
             <div class="codex-actions">
                 <button type="button" class="codex-button" id="codexSignIn">Sign in with ChatGPT</button>
