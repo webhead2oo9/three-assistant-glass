@@ -32,5 +32,7 @@
   "ttsSpeed": "1.0",
   "assistantLanguage": "",
   "bargeIn": true,
-  "codexInstructions": ""
+  "codexInstructions": "",
+  "codexModel": "",
+  "codexVoice": ""
 }

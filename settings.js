@@ -333,9 +333,9 @@ const ASSISTANT_TEXT_FIELDS = [
     'sttBaseUrl', 'sttApiKey', 'sttModel',
     'ttsBaseUrl', 'ttsApiKey', 'ttsModel', 'ttsVoice', 'ttsSpeed',
     'assistantLanguage',
-    'codexInstructions',
+    'codexInstructions', 'codexModel',
 ];
-const ASSISTANT_SELECTS = ['assistantProvider', 'sttProvider', 'ttsProvider'];
+const ASSISTANT_SELECTS = ['assistantProvider', 'sttProvider', 'ttsProvider', 'codexVoice'];
 const ASSISTANT_TOGGLES = ['bargeIn'];
 
 const ASSISTANT_PRESETS = {
@@ -421,6 +421,7 @@ async function initAssistantTab() {
     document.getElementById('assistantProvider').value = settings.assistantProvider || 'vapi';
     document.getElementById('sttProvider').value = settings.sttProvider || 'xai';
     document.getElementById('ttsProvider').value = settings.ttsProvider || 'xai';
+    document.getElementById('codexVoice').value = settings.codexVoice || '';
     document.getElementById('bargeIn').checked = settings.bargeIn !== false;
     updateAssistantUI();
 

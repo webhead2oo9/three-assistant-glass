@@ -206,6 +206,26 @@
                 <button type="button" class="codex-button" id="codexRefresh">Refresh status</button>
                 <a id="codexLoginLink" target="_blank" rel="noopener noreferrer" hidden>Continue sign-in</a>
             </div>
+            <label class="switch" for="codexVoice">
+                <span>Voice</span>
+                <select id="codexVoice" class="rounded-input">
+                    <option value="">Default (Cove)</option>
+                    <option value="cove">Cove</option>
+                    <option value="juniper">Juniper</option>
+                    <option value="maple">Maple</option>
+                    <option value="spruce">Spruce</option>
+                    <option value="ember">Ember</option>
+                    <option value="vale">Vale</option>
+                    <option value="breeze">Breeze</option>
+                    <option value="arbor">Arbor</option>
+                    <option value="sol">Sol</option>
+                </select>
+            </label>
+            <label class="switch" for="codexModel">
+                <span>Realtime model override (optional)</span>
+                <input id="codexModel" class="rounded-input" maxlength="120" placeholder="Default: gpt-live-1-codex">
+            </label>
+            <p class="assistant-hint">Changes apply when you next press Play. Leave the model blank for the Codex default; overrides require a compatible realtime model available to your account.</p>
             <label class="switch" for="codexInstructions">
                 <span>Character instructions</span>
                 <textarea id="codexInstructions" class="rounded-input" maxlength="8000" placeholder="A friendly voice assistant who speaks naturally and keeps replies concise."></textarea>

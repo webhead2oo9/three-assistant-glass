@@ -118,6 +118,12 @@ at `555b82afa9`. Voice access remains experimental and must be verified with you
 5. Optionally set **Character instructions**, return to the character, press Play,
    and allow microphone access.
 
+The **Voice** selector offers Cove (default), Juniper, Maple, Spruce, Ember, Vale,
+Breeze, Arbor, and Sol. **Realtime model override** is optional; leave it blank for
+the Codex default (`gpt-live-1-codex` with protocol v3 in CLI 0.153.4). Overrides
+must name a compatible realtime model available to your account. Model and voice
+changes apply to the next session, after stopping and pressing Play again.
+
 Codex keeps this app's login in `~/.three-assistant-glass/codex`, outside the served
 project and separate from your normal Codex profile. ChatGPT tokens are never
 stored in `settings.json` or returned to the browser. **Sign out** affects only this

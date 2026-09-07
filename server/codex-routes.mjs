@@ -178,7 +178,12 @@ export function createCodexRouter(client, { getSettings = () => ({}), attachTime
     if (session.starting) throw fail('Voice session already started.', 409);
     const sdp = req.body?.sdp;
     if (typeof sdp !== 'string' || !sdp.startsWith('v=0') || sdp.length > 128 * 1024) throw fail('A browser-generated SDP offer is required.');
-    const configured = getSettings().codexInstructions;
+    const settings = getSettings();
+    const configured = settings.codexInstructions;
+    const model = settings.codexModel || '';
+    const voice = settings.codexVoice || '';
+    if (typeof model !== 'string' || (model && !/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,119}$/.test(model))) throw fail('Invalid realtime model name.');
+    if (voice && !['cove', 'juniper', 'maple', 'spruce', 'ember', 'vale', 'breeze', 'arbor', 'sol'].includes(voice)) throw fail('Unsupported realtime voice.');
     const instructions = (typeof configured === 'string' && configured.trim()) || DEFAULT_CODEX_INSTRUCTIONS;
     if (instructions.length > 8000) throw fail('Character instructions must be under 8,000 characters.');
     session.starting = (async () => {
@@ -197,6 +202,7 @@ export function createCodexRouter(client, { getSettings = () => ({}), attachTime
       await client.request('thread/realtime/start', {
         threadId: session.threadId, outputModality: 'audio', version: 'v3',
         includeStartupContext: false, prompt: instructions,
+        ...(model ? { model } : {}), ...(voice ? { voice } : {}),
         transport: { type: 'webrtc', sdp },
       });
     })();

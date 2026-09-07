@@ -123,7 +123,7 @@ app.post('/api/settings', express.json(), async (req, res) => {
       'llmBaseUrl', 'llmApiKey', 'llmModel', 'llmSystemPrompt', 'llmFirstMessage',
       'sttProvider', 'sttBaseUrl', 'sttApiKey', 'sttModel',
       'ttsProvider', 'ttsBaseUrl', 'ttsApiKey', 'ttsModel', 'ttsVoice', 'ttsSpeed',
-      'codexInstructions',
+      'codexInstructions', 'codexModel', 'codexVoice',
     ];
 
     possibleSettings.forEach(setting => {

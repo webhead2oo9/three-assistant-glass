@@ -130,7 +130,7 @@ test('managed login reports completion errors and supports cancellation', async 
 });
 
 test('voice creates an isolated thread, negotiates WebRTC and forwards only voice events', async t => {
-  const h = await harness(t, { getSettings: () => ({ codexInstructions: 'Speak as a friendly character.' }) });
+  const h = await harness(t, { getSettings: () => ({ codexInstructions: 'Speak as a friendly character.', codexModel: 'gpt-live-1-codex', codexVoice: 'juniper' }) });
   const { id, events } = await allocate(h);
   const result = await h.request(`/sessions/${id}/start`, { sdp: 'v=0\r\noffer' });
   assert.equal(result.status, 200);
@@ -146,6 +146,8 @@ test('voice creates an isolated thread, negotiates WebRTC and forwards only voic
   assert.equal(start.version, 'v3');
   assert.equal(start.includeStartupContext, false);
   assert.equal(start.prompt, 'Speak as a friendly character.');
+  assert.equal(start.model, 'gpt-live-1-codex');
+  assert.equal(start.voice, 'juniper');
   h.client.emit('notification', { method: 'item/agentMessage/delta', params: { threadId: 'thread-1', delta: 'not a voice event' } });
   h.client.emit('notification', { method: 'thread/realtime/transcript/delta', params: { threadId: 'another-thread', role: 'user', delta: 'unrelated' } });
   h.client.emit('notification', { method: 'thread/realtime/transcript/delta', params: { threadId: 'thread-1', role: 'assistant', delta: 'Hello' } });
