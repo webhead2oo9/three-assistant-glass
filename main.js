@@ -8,6 +8,7 @@ import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { LookingGlassWebXRPolyfill, LookingGlassConfig } from "@lookingglass/webxr"
 import { VRButton } from "three/addons/webxr/VRButton.js";
 import { createAssistant } from './assistant/pipeline.js';
+import { createCodexAssistant } from './assistant/codex.js';
 
 // Set up renderer to use full screen
 const renderer = new THREE.WebGLRenderer();
@@ -919,15 +920,16 @@ async function toggleAssistant() {
     } catch (error) {
       if (session !== assistantSession) return;
       console.error('Assistant failed to start:', error);
-      updateTextMesh('Error: ' + error.message);
       stopCustomAssistant();
+      updateTextMesh('Error: ' + error.message);
+      setAssistantStatus('Error');
       toggleButton.textContent = '▶️';
       assistantActive = false;
     }
   }
 }
 
-// Custom (xAI / OpenAI-compatible / local) assistant
+// Custom pipeline or Codex/ChatGPT voice adapter
 function setAssistantStatus(status) {
   const el = document.getElementById('assistantStatus');
   if (el) el.textContent = status || '';
@@ -936,7 +938,8 @@ function setAssistantStatus(status) {
 async function startCustomAssistant(session) {
   const settings = await fetch('/api/settings').then((r) => r.json());
   if (session !== assistantSession) return;
-  customAssistant = createAssistant(settings, {
+  const create = assistantProvider === 'codex' ? createCodexAssistant : createAssistant;
+  customAssistant = create(settings, {
     onText: updateTextMesh,
     onSpeaker: updateVrmNameDisplay,
     onStatus: setAssistantStatus,
@@ -944,6 +947,16 @@ async function startCustomAssistant(session) {
       console.error('[assistant]', error);
       updateTextMesh('Error: ' + error.message);
       setAssistantStatus('Error');
+    },
+    onEnd: (error) => {
+      if (session !== assistantSession) return;
+      stopCustomAssistant();
+      assistantActive = false;
+      document.getElementById('toggleVapi').textContent = '▶️';
+      if (error) {
+        updateTextMesh('Error: ' + error.message);
+        setAssistantStatus('Error');
+      }
     },
   });
   updateVrmNameDisplay('Character');

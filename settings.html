@@ -148,6 +148,7 @@
             <select id="assistantProvider" class="assistant-select">
                 <option value="vapi">Vapi (cloud)</option>
                 <option value="custom">Custom — xAI, OpenAI-compatible or local</option>
+                <option value="codex">ChatGPT via Codex (experimental)</option>
             </select>
             <span id="assistantSaveStatus">Saved</span>
         </label>
@@ -192,6 +193,23 @@
                     <br>
                     <span id="firstMessage">Loading First Message...</span>
                 </span>
+        </div>
+
+        <div id="codexAssistantSection" hidden>
+            <h1>ChatGPT voice</h1>
+            <p class="assistant-hint">Talk with the character using your ChatGPT account. Realtime voice is experimental and availability depends on your account.</p>
+            <p id="codexAccountStatus" role="status" aria-live="polite">Checking sign-in…</p>
+            <div class="codex-actions">
+                <button type="button" class="codex-button" id="codexSignIn">Sign in with ChatGPT</button>
+                <button type="button" class="codex-button" id="codexCancelLogin" hidden>Cancel sign-in</button>
+                <button type="button" class="codex-button" id="codexSignOut" hidden>Sign out</button>
+                <button type="button" class="codex-button" id="codexRefresh">Refresh status</button>
+                <a id="codexLoginLink" target="_blank" rel="noopener noreferrer" hidden>Continue sign-in</a>
+            </div>
+            <label class="switch" for="codexInstructions">
+                <span>Character instructions</span>
+                <textarea id="codexInstructions" class="rounded-input" maxlength="8000" placeholder="A friendly voice assistant who speaks naturally and keeps replies concise."></textarea>
+            </label>
         </div>
 
         <div id="customAssistantSection" hidden>
@@ -392,5 +410,6 @@
     <input type="file" id="characterUpload" style="display: none;" multiple accept=".png,.vrm,.zip">
 
     <script src="settings.js"></script>
+    <script type="module" src="settings-codex.js"></script>
 </body>
 </html>

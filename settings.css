@@ -314,7 +314,7 @@ textarea.rounded-input {
     margin: -10px 0 16px;
 }
 
-.preset-button {
+.preset-button, .codex-button {
     padding: 5px 14px;
     border-radius: 16px;
     border: 1px solid #4B9560;
@@ -327,10 +327,15 @@ textarea.rounded-input {
     transition: background-color 0.3s ease, color 0.3s ease;
 }
 
-.preset-button:hover {
+.preset-button:hover, .codex-button:hover {
     background-color: #4B9560;
     color: #fbfbf7;
 }
+
+.codex-actions { margin: 12px 0 24px; }
+.codex-button:disabled { opacity: 0.5; cursor: wait; }
+#codexAccountStatus { overflow-wrap: anywhere; }
+#codexLoginLink { color: #1d3c34; margin-left: 8px; }
 
 #assistantSaveStatus {
     margin-left: 12px;

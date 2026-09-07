@@ -31,5 +31,6 @@
   "ttsVoice": "eve",
   "ttsSpeed": "1.0",
   "assistantLanguage": "",
-  "bargeIn": true
+  "bargeIn": true,
+  "codexInstructions": ""
 }

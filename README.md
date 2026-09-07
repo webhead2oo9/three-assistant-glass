@@ -102,6 +102,57 @@ Instead of Vapi you can wire the character to your own model and voices. Everyth
 
 Coming next: xAI's realtime speech-to-speech (`grok-voice`) as a third provider alongside Vapi and Custom.
 
+## ChatGPT voice through Codex (experimental)
+
+This provider adds ChatGPT sign-in and a direct WebRTC voice session to the character.
+It uses a local `codex app-server` process for authentication and voice setup. The
+integration was checked against Codex CLI **0.153.4** and the `openai/codex` source
+at `555b82afa9`. Voice access remains experimental and must be verified with your account.
+
+1. Install a recent [Codex CLI](https://learn.chatgpt.com/docs/cli) and check that
+   `codex --version` works in the terminal where you start this app.
+2. Restart the app with `npm start`. Open it through `http://localhost:3000`.
+3. In **Settings → Assistant**, select **ChatGPT via Codex (experimental)**.
+4. Click **Sign in with ChatGPT** and complete the browser sign-in. If the popup is
+   blocked, use **Continue sign-in**. The account status updates automatically.
+5. Optionally set **Character instructions**, return to the character, press Play,
+   and allow microphone access.
+
+Codex keeps this app's login in `~/.three-assistant-glass/codex`, outside the served
+project and separate from your normal Codex profile. ChatGPT tokens are never
+stored in `settings.json` or returned to the browser. **Sign out** affects only this
+app's profile and ends any active voice session.
+
+The Node server talks to Codex using JSON-RPC over stdio. It creates an ephemeral
+thread with no execution environments and negotiates `thread/realtime/start`
+using WebRTC and protocol `v3`. The browser sends microphone audio directly over
+WebRTC, plays the remote audio, and measures it for mouth animation. Transcript
+events arrive through a local server-sent event stream and update the speech bubble.
+Clipboard context, when enabled, is sent through `thread/realtime/appendText`.
+This provider does not use the Custom provider's STT/TTS settings or its barge-in
+toggle; voice turn-taking is handled by the realtime service.
+
+Stopping, leaving the page, signing out, or losing the control connection releases
+the browser microphone and closes the Codex voice session. Only one character
+voice session can be active at a time. The Codex HTTP routes accept local,
+same-origin requests only; opening this feature through a LAN address is unsupported.
+
+Local configuration (set these before `npm start`):
+
+| Variable | Purpose |
+|---|---|
+| `THREE_ASSISTANT_CODEX_BIN` | Codex executable path, if it is not available as `codex` on `PATH`. A locally built executable from the cloned repository also works if its protocol is compatible. |
+| `THREE_ASSISTANT_CODEX_HOME` | Override the dedicated Codex profile directory. Keep this outside the served project. |
+| `THREE_ASSISTANT_PORT` | App port, default `3000`. |
+| `THREE_ASSISTANT_NO_OPEN=1` | Suppress opening a browser when the server starts. |
+
+Run `npm test` for protocol, route, browser lifecycle, and Settings regression tests.
+The tests substitute the upstream voice service; they do not establish live voice
+entitlement. An account/voice error is displayed in the app, with no automatic
+switch to an API-key provider. References: [Codex authentication](https://learn.chatgpt.com/docs/auth),
+[app-server](https://learn.chatgpt.com/docs/app-server), and the cloned repository's
+`codex-rs/app-server/README.md` for the experimental realtime methods.
+
 ## View on a Looking Glass Display
 
 1. Install [Looking Glass Bridge](https://lookingglassfactory.com/software/looking-glass-bridge)

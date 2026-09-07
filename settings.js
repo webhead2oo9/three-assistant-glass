@@ -333,6 +333,7 @@ const ASSISTANT_TEXT_FIELDS = [
     'sttBaseUrl', 'sttApiKey', 'sttModel',
     'ttsBaseUrl', 'ttsApiKey', 'ttsModel', 'ttsVoice', 'ttsSpeed',
     'assistantLanguage',
+    'codexInstructions',
 ];
 const ASSISTANT_SELECTS = ['assistantProvider', 'sttProvider', 'ttsProvider'];
 const ASSISTANT_TOGGLES = ['bargeIn'];
@@ -375,6 +376,8 @@ function updateAssistantUI() {
     const provider = document.getElementById('assistantProvider').value;
     document.getElementById('vapiAssistantSection').hidden = provider !== 'vapi';
     document.getElementById('customAssistantSection').hidden = provider !== 'custom';
+    document.getElementById('codexAssistantSection').hidden = provider !== 'codex';
+    window.dispatchEvent(new Event('assistant-provider-changed'));
 
     const stt = document.getElementById('sttProvider').value;
     setHidden('.stt-server-only', stt === 'browser');
@@ -387,7 +390,7 @@ function updateAssistantUI() {
     setHidden('.tts-kokoro-only', tts !== 'kokoro');
     document.getElementById('ttsVoice').placeholder =
         { xai: 'eve', openai: 'alloy', kokoro: 'af_heart', browser: 'System default' }[tts] || '';
-    loadVoiceOptions(tts);
+    if (provider === 'custom') loadVoiceOptions(tts);
 }
 
 async function loadVoiceOptions(provider) {

@@ -9,13 +9,15 @@ import { fileURLToPath } from 'url';
 import { promises as fsPromises } from 'fs';
 import multer from 'multer';
 import AdmZip from 'adm-zip';
+import { CodexClient } from './server/codex-client.mjs';
+import { createCodexRouter } from './server/codex-routes.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Initialize Express app
 const app = express();
-const port = 3000;
+const port = Number(process.env.THREE_ASSISTANT_PORT) || 3000;
 
 // Ensure uploads directory exists
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -71,6 +73,9 @@ async function loadOrCreateSettings() {
 // Call this function before setting up routes
 await loadOrCreateSettings();
 
+const codexClient = new CodexClient();
+app.use('/api/codex', createCodexRouter(codexClient, { getSettings: () => settings }));
+
 // Modify the /settings route
 app.get('/settings', (req, res) => {
   res.sendFile(path.join(__dirname, 'settings.html'));
@@ -118,6 +123,7 @@ app.post('/api/settings', express.json(), async (req, res) => {
       'llmBaseUrl', 'llmApiKey', 'llmModel', 'llmSystemPrompt', 'llmFirstMessage',
       'sttProvider', 'sttBaseUrl', 'sttApiKey', 'sttModel',
       'ttsProvider', 'ttsBaseUrl', 'ttsApiKey', 'ttsModel', 'ttsVoice', 'ttsSpeed',
+      'codexInstructions',
     ];
 
     possibleSettings.forEach(setting => {
@@ -382,10 +388,21 @@ const checkClipboard = () => {
   }
 };
 
-setInterval(checkClipboard, 1000);
+const clipboardTimer = setInterval(checkClipboard, 1000);
+
+function shutdown() {
+  codexClient.close();
+  clearInterval(clipboardTimer);
+  for (const client of wss.clients) client.terminate();
+  wss.close();
+  server.close();
+}
+process.once('SIGINT', shutdown);
+process.once('SIGTERM', shutdown);
+server.once('close', () => codexClient.close());
 
 server.listen(port, () => {
   console.log(`Server running at http://localhost:${port}`);
   console.log(`Settings page available at http://localhost:${port}/settings`);
-  open(`http://localhost:${port}`);
+  if (process.env.THREE_ASSISTANT_NO_OPEN !== '1') open(`http://localhost:${port}`);
 });
