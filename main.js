@@ -9,6 +9,7 @@ import { LookingGlassWebXRPolyfill, LookingGlassConfig } from "@lookingglass/web
 import { VRButton } from "three/addons/webxr/VRButton.js";
 import { createAssistant } from './assistant/pipeline.js';
 import { createCodexAssistant } from './assistant/codex.js';
+import { layoutCaption } from './caption-layout.js';
 
 // Set up renderer to use full screen
 const renderer = new THREE.WebGLRenderer();
@@ -980,25 +981,6 @@ function updateTextMesh(message) {
     const fontSize = 36;
     context.font = `${fontSize}px Mali`;
 
-    const maxWidth = greenRectWidth * 0.9 * 1000;
-    const words = message.split(' ');
-    let lines = [];
-    let currentLine = words[0];
-
-    for (let i = 1; i < words.length; i++) {
-      const testLine = currentLine + ' ' + words[i];
-      const metrics = context.measureText(testLine);
-      const testWidth = metrics.width;
-
-      if (testWidth > maxWidth) {
-        lines.push(currentLine);
-        currentLine = words[i];
-      } else {
-        currentLine = testLine;
-      }
-    }
-    lines.push(currentLine);
-
     const textCanvas = document.createElement('canvas');
     const textContext = textCanvas.getContext('2d');
     textCanvas.width = greenRectWidth * 1000;
@@ -1011,6 +993,14 @@ function updateTextMesh(message) {
 
     const lineHeight = fontSize * 1.2;
     const leftPadding = 40; // Add some left padding
+    // Only the newest lines that fit between the margins are drawn, so a long
+    // reply tail-scrolls instead of running off the bottom of the plate
+    const maxLines = (textCanvas.height - topMargin - leftPadding) / lineHeight;
+    const lines = layoutCaption(message, {
+      measure: (line) => context.measureText(line).width,
+      maxWidth: greenRectWidth * 0.9 * 1000,
+      maxLines,
+    });
 
     lines.forEach((line, index) => {
       textContext.fillText(line, leftPadding, topMargin + index * lineHeight);
