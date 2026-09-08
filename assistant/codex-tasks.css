@@ -1,44 +1,92 @@
+/* ChatGPT task panel, shown on the character screen during a Codex voice session. */
+
 .codex-task-panel {
   position: fixed;
-  top: 56px;
+  top: 72px;
   right: 16px;
   z-index: 110;
   box-sizing: border-box;
   width: min(420px, calc(100vw - 32px));
-  max-height: calc(100dvh - 130px);
+  max-height: calc(100dvh - 200px);
   overflow: auto;
-  padding: 12px 16px;
-  border: 1px solid #1c532b55;
-  border-radius: 12px;
-  background: #efead7f5;
-  color: #193e24;
-  box-shadow: 0 4px 24px #0002;
-  font-size: 13px;
+  padding: 14px 16px;
+  border: 1px solid rgba(29, 60, 52, 0.14);
+  border-radius: 18px;
+  background: rgba(251, 251, 247, 0.96);
+  color: var(--ink, #1d3c34);
+  box-shadow: var(--shadow-m, 0 6px 24px rgba(29, 60, 52, 0.14));
+  font-family: var(--font, sans-serif);
+  font-size: 14px;
+  line-height: 1.45;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  scrollbar-width: thin;
 }
-.codex-task-panel summary { cursor: pointer; font-weight: 500; }
-.codex-task-panel button {
-  border: 1px solid #1c532b;
-  border-radius: 6px;
-  background: #1c532b;
-  color: #fff;
-  padding: 7px 10px;
-  margin: 4px 6px 4px 0;
+.codex-task-panel summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   cursor: pointer;
+  font-size: 15px;
+  font-weight: 600;
+  list-style: none;
 }
-.codex-task-panel button:disabled { opacity: .5; cursor: wait; }
-.codex-task-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; font-family: monospace; }
-.codex-task-panel [role="alert"] { color: #9a241f; }
-.codex-task-request { border-top: 1px solid #1c532b55; padding: 8px 0; }
-.codex-task-request h3 { font-size: 14px; }
+.codex-task-panel summary::-webkit-details-marker { display: none; }
+.codex-task-panel summary::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--leaf, #4b9560);
+  flex: none;
+}
+.codex-task-panel p { margin: 8px 0; }
+.codex-task-panel p:empty { display: none; }
+.codex-task-panel button {
+  border: none;
+  border-radius: 999px;
+  background: var(--leaf, #4b9560);
+  color: var(--paper, #fbfbf7);
+  padding: 8px 14px;
+  margin: 4px 6px 4px 0;
+  font-weight: 600;
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+.codex-task-panel button:hover { background: var(--leaf-strong, #3b7f4d); }
+.codex-task-panel button:disabled { opacity: 0.5; cursor: wait; }
+.codex-task-panel pre {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--paper-2, #f4f1e6);
+  font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.codex-task-panel [role="alert"] { color: var(--rose, #b3402f); font-weight: 500; }
+.codex-task-request {
+  border-top: 1px solid var(--sand-2, #e7e3d4);
+  margin-top: 6px;
+  padding: 10px 0;
+}
+.codex-task-request h3 { margin: 4px 0 6px; font-size: 15px; }
 .codex-task-request label, .codex-task-request span { display: block; }
 .codex-task-request textarea, .codex-task-request input {
   display: block;
   box-sizing: border-box;
   width: 100%;
   margin: 6px 0;
-  padding: 8px;
-  border: 1px solid #1c532b88;
-  border-radius: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--sand, #d7d3c2);
+  border-radius: 10px;
+  background: var(--paper, #fbfbf7);
+  font: inherit;
+}
+.codex-task-request textarea:focus, .codex-task-request input:focus {
+  outline: none;
+  border-color: var(--leaf, #4b9560);
+  box-shadow: var(--focus, 0 0 0 3px rgba(75, 149, 96, 0.35));
 }
 .codex-task-output { max-height: 240px; overflow: auto; }
-.codex-task-output pre { border-top: 1px solid #1c532b33; padding-top: 10px; }

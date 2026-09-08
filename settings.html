@@ -3,449 +3,470 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Settings</title>
-    <link href="https://fonts.googleapis.com/css2?family=Mali:ital,wght@0,200;0,300;0,400;0,500;0,600;0,700;1,200;1,300;1,400;1,500;1,600;1,700&display=swap" rel="stylesheet">
+    <title>Settings · three-assistant-glass</title>
+    <link rel="stylesheet" href="theme.css">
     <link rel="stylesheet" href="settings.css">
 </head>
 <body>
-    <div class="settings-tab-container" style="margin-bottom: 15px;">
+<div class="page">
+
+    <header class="page-header">
+        <div class="brand">
+            <span class="brand-mark"><span class="icon" style="--icon: url('icons/sparkles.svg')"></span></span>
+            <div>
+                <h1>Settings</h1>
+                <p>three-assistant-glass · changes save automatically</p>
+            </div>
+        </div>
+        <div id="assistantSaveStatus" class="save-status" role="status" aria-live="polite">Saved</div>
+    </header>
+
+    <nav class="settings-tab-container" aria-label="Settings sections">
         <div class="settings-tab-item active">
-            <span class="settings-tab-label">Features</span>
-            <button class="settings-tab-button active" data-tab="settings-tab">
-                <img src="icons/settings.svg" alt="Settings" class="settings-tab-icon">
+            <button class="settings-tab-button active" data-tab="settings-tab" type="button">
+                <span class="icon" style="--icon: url('icons/settings.svg')"></span>
+                <span class="settings-tab-label">Features</span>
             </button>
         </div>
         <div class="settings-tab-item">
-            <span class="settings-tab-label">Characters</span>
-            <button class="settings-tab-button" data-tab="characters-tab">
-                <img src="icons/user-round-pen.svg" alt="Characters" class="settings-tab-icon">
+            <button class="settings-tab-button" data-tab="characters-tab" type="button">
+                <span class="icon" style="--icon: url('icons/user-round-pen.svg')"></span>
+                <span class="settings-tab-label">Characters</span>
             </button>
         </div>
         <div class="settings-tab-item">
-            <span class="settings-tab-label">Assistant</span>
-            <button class="settings-tab-button" data-tab="assistant-tab">
-                <img src="icons/audio-lines.svg" alt="Assistant" class="settings-tab-icon">
+            <button class="settings-tab-button" data-tab="assistant-tab" type="button">
+                <span class="icon" style="--icon: url('icons/audio-lines.svg')"></span>
+                <span class="settings-tab-label">Assistant</span>
             </button>
         </div>
         <div class="settings-tab-item">
-            <span class="settings-tab-label">API Keys</span>
-            <button class="settings-tab-button" data-tab="api-keys-tab">
-                <img src="icons/key-round.svg" alt="API Keys" class="settings-tab-icon">
+            <button class="settings-tab-button" data-tab="api-keys-tab" type="button">
+                <span class="icon" style="--icon: url('icons/key-round.svg')"></span>
+                <span class="settings-tab-label">API Keys</span>
             </button>
         </div>
-    </div>
+    </nav>
 
-    <div id="settings-tab" class="tab-content active" style="background-color: #fbfbf7; padding: 10px; border-radius: 15px;">
+    <!-- ───────────────────────────── Features ───────────────────────────── -->
+    <div id="settings-tab" class="tab-content active">
 
-        <h1>
-            <img src="icons/info.svg" alt="Flask Icon" style="width: 40px; height: 40px; filter: invert(48%) sepia(79%) saturate(376%) hue-rotate(93deg) brightness(88%) contrast(84%); vertical-align: middle; margin-bottom: 5px;">
-            Overlay
-        </h1>
-        <label class="switch">
-            <span>Show Settings Icon</span>
-            <input type="checkbox" id="settingsIconToggle">
-            <span class="slider"></span>
-        </label>
-        <label class="switch">
-            <span>Time Format</span>
-            <select id="timeFormatSelect">
-                <option value="12">12 Hour</option>
-                <option value="24">24 Hour</option>
-            </select>
-        </label>
-
-        <h1>
-            <img src="icons/keyboard.svg" alt="Flask Icon" style="width: 40px; height: 40px; filter: invert(48%) sepia(79%) saturate(376%) hue-rotate(93deg) brightness(88%) contrast(84%); vertical-align: middle; margin-bottom: 5px;">
-            Keyboard Shortcuts
-        </h1>
-        <span style="font-size: 1.2em;">
-            <span class="model-text">Start/Stop Assistant</span>
-            <input type="text" id="assistantShortcut" placeholder="Press keys" readonly>
-        </span>
-
-        <h1>
-            <img src="icons/flask-round.svg" alt="Flask Icon" style="width: 40px; height: 40px; filter: invert(48%) sepia(79%) saturate(376%) hue-rotate(93deg) brightness(88%) contrast(84%); vertical-align: middle; margin-bottom: 5px;">
-            Experimental
-        </h1>
-        <label class="switch">
-            <span>Plaintext Clipboard Access</span>
-            <input type="checkbox" id="clipboardAccessToggle">
-            <span class="slider"></span>
-        </label>
-        <label class="switch">
-            <span>Show Time</span>
-            <input type="checkbox" id="showTimeToggle">
-            <span class="slider"></span>
-        </label>
-
-        <h1>
-            <img src="icons/bug.svg" alt="Flask Icon" style="width: 40px; height: 40px; filter: invert(48%) sepia(79%) saturate(376%) hue-rotate(93deg) brightness(88%) contrast(84%); vertical-align: middle; margin-bottom: 5px;">
-            Debug
-        </h1>
-        <label class="switch">
-            <span>Free Camera</span>
-            <input type="checkbox" id="freeCameraToggle">
-            <span class="slider"></span>
-        </label>
-        <label class="switch">
-            <span>Scene Debug View</span>
-            <input type="checkbox" id="sceneDebugToggle">
-            <span class="slider"></span>
-        </label>
-        <label class="switch">
-            <span>Drag & Drop Support for vrm & fbx</span>
-            <input type="checkbox" id="dragDropToggle">
-            <span class="slider"></span>
-        </label>
-        <label class="switch">
-            <span>vrm Debug View</span>
-                <input type="checkbox" id="vrmDebugToggle">
-            <span class="slider"></span>
-        </label>
-        <label class="switch">
-            <span>Animation Picker</span>
-            <input type="checkbox" id="animationPickerToggle">
-            <span class="slider"></span>
-        </label>
-        
-    </div>
-
-    <div id="characters-tab" class="tab-content" style="background-color: #fbfbf7; padding: 10px; border-radius: 15px;">
-        <div style="display: flex;">
-            <div style="flex: 1; padding: 10px;">
-                <div class="character-grid" id="characterGrid">
-                    <!-- Character cards will be dynamically added here -->
+        <section class="group">
+            <h2 class="group-title"><span class="icon" style="--icon: url('icons/info.svg')"></span>Overlay</h2>
+            <label class="row switch">
+                <span class="row-label">Show settings icon <span class="field-note">Gear button in the top-right corner of the character screen</span></span>
+                <span class="row-control"><input type="checkbox" id="settingsIconToggle"><span class="slider"></span></span>
+            </label>
+            <label class="row switch">
+                <span class="row-label">Show time</span>
+                <span class="row-control"><input type="checkbox" id="showTimeToggle"><span class="slider"></span></span>
+            </label>
+            <div class="row">
+                <label class="row-label" for="timeFormatSelect">Time format</label>
+                <div class="row-control">
+                    <select id="timeFormatSelect">
+                        <option value="12">12 hour</option>
+                        <option value="24">24 hour</option>
+                    </select>
                 </div>
             </div>
-            <div style="flex: 1; padding: 10px; margin-top: -19px;">
-                <h1 id="characterName">
-                    <img src="icons/user-round.svg" alt="Flask Icon" style="width: 40px; height: 40px; filter: invert(48%) sepia(79%) saturate(376%) hue-rotate(93deg) brightness(88%) contrast(84%); vertical-align: middle; margin-bottom: 5px;">
-                    Loading Character...
-                </h1>
-                <div style="border-bottom: 4px dashed #4B9560; margin-top: -20px; margin-bottom: 20px;"></div>
-                <h1>
-                    <img src="icons/person-standing.svg" alt="Flask Icon" style="width: 40px; height: 40px; filter: invert(48%) sepia(79%) saturate(376%) hue-rotate(93deg) brightness(88%) contrast(84%); vertical-align: middle; margin-bottom: 5px;">
-                    Model
-                </h1>
-                <label class="switch">
-                    <span>Idle Animation</span>
-                    <select id="idleAnimationSelect">
-                        <option value="">Select an animation</option>
-                    </select>
-                </label>
+        </section>
 
+        <section class="group">
+            <h2 class="group-title"><span class="icon" style="--icon: url('icons/keyboard.svg')"></span>Keyboard shortcut</h2>
+            <div class="row">
+                <label class="row-label" for="assistantShortcut">Start / stop assistant <span class="field-note">Click the box, then press a key</span></label>
+                <div class="row-control">
+                    <input type="text" id="assistantShortcut" placeholder="Press keys" readonly>
+                </div>
             </div>
+        </section>
+
+        <section class="group">
+            <h2 class="group-title"><span class="icon" style="--icon: url('icons/flask-round.svg')"></span>Experimental</h2>
+            <label class="row switch">
+                <span class="row-label">Plaintext clipboard access <span class="field-note">Copied text is shared with the assistant as context</span></span>
+                <span class="row-control"><input type="checkbox" id="clipboardAccessToggle"><span class="slider"></span></span>
+            </label>
+        </section>
+
+        <section class="group">
+            <h2 class="group-title"><span class="icon" style="--icon: url('icons/bug.svg')"></span>Debug</h2>
+            <label class="row switch">
+                <span class="row-label">Free camera <span class="field-note">Orbit, pan and zoom with the mouse</span></span>
+                <span class="row-control"><input type="checkbox" id="freeCameraToggle"><span class="slider"></span></span>
+            </label>
+            <label class="row switch">
+                <span class="row-label">Scene debug view <span class="field-note">Grid and axis helpers</span></span>
+                <span class="row-control"><input type="checkbox" id="sceneDebugToggle"><span class="slider"></span></span>
+            </label>
+            <label class="row switch">
+                <span class="row-label">Drag &amp; drop <span class="field-note">Drop a .vrm or .fbx file onto the character screen</span></span>
+                <span class="row-control"><input type="checkbox" id="dragDropToggle"><span class="slider"></span></span>
+            </label>
+            <label class="row switch">
+                <span class="row-label">VRM debug view <span class="field-note">Bone and spring helpers</span></span>
+                <span class="row-control"><input type="checkbox" id="vrmDebugToggle"><span class="slider"></span></span>
+            </label>
+            <label class="row switch">
+                <span class="row-label">Animation picker <span class="field-note">Dropdown to preview animations</span></span>
+                <span class="row-control"><input type="checkbox" id="animationPickerToggle"><span class="slider"></span></span>
+            </label>
+        </section>
+
+    </div>
+
+    <!-- ───────────────────────────── Characters ─────────────────────────── -->
+    <div id="characters-tab" class="tab-content">
+        <div class="characters-layout">
+            <section class="group">
+                <h2 class="group-title"><span class="icon" style="--icon: url('icons/user-round-pen.svg')"></span>Characters</h2>
+                <p class="group-intro">Click a card to use that character. Add your own .vrm (optionally with a .png card or a .zip).</p>
+                <div class="character-grid" id="characterGrid">
+                    <!-- Character cards are added by settings.js -->
+                </div>
+            </section>
+
+            <section class="group">
+                <h2 class="group-title"><span class="icon" style="--icon: url('icons/user-round.svg')"></span><span id="characterName">Loading character…</span></h2>
+                <p class="group-intro">Currently selected</p>
+                <div class="row stacked">
+                    <label class="row-label" for="idleAnimationSelect">Idle animation</label>
+                    <div class="row-control">
+                        <select id="idleAnimationSelect">
+                            <option value="">Select an animation</option>
+                        </select>
+                    </div>
+                </div>
+            </section>
         </div>
     </div>
 
-    <div id="assistant-tab" class="tab-content" style="background-color: #fbfbf7; padding: 10px; border-radius: 15px;">
-        <h1>
-            <img src="icons/sparkles.svg" alt="Provider" style="width: 40px; height: 40px; filter: invert(48%) sepia(79%) saturate(376%) hue-rotate(93deg) brightness(88%) contrast(84%); vertical-align: middle; margin-bottom: 5px;">
-            Provider
-        </h1>
-        <label class="switch">
-            <span>Voice Assistant</span>
-            <select id="assistantProvider" class="assistant-select">
-                <option value="vapi">Vapi (cloud)</option>
-                <option value="custom">Custom — xAI, OpenAI-compatible or local</option>
-                <option value="codex">ChatGPT via Codex (experimental)</option>
-            </select>
-            <span id="assistantSaveStatus">Saved</span>
-        </label>
+    <!-- ───────────────────────────── Assistant ──────────────────────────── -->
+    <div id="assistant-tab" class="tab-content">
 
-        <div id="vapiAssistantSection">
-            <span class="assistant-hint">
-                <img src="icons/lightbulb.svg" alt="" style="width: 20px; height: 20px; vertical-align: middle; margin-bottom: 5px;">
-                Vapi keys live in the API Keys tab
-            </span>
-                <h1>
-                    <img src="icons/audio-lines.svg" alt="Flask Icon" style="width: 40px; height: 40px; filter: invert(48%) sepia(79%) saturate(376%) hue-rotate(93deg) brightness(88%) contrast(84%); vertical-align: middle; margin-bottom: 5px;">
-                    Voice Assistant
-                </h1>
-                <label class="switch">
-                    <span>
-                        Assistant
+        <section class="group">
+            <h2 class="group-title"><span class="icon" style="--icon: url('icons/sparkles.svg')"></span>Provider</h2>
+            <div class="row">
+                <label class="row-label" for="assistantProvider">Voice assistant</label>
+                <div class="row-control">
+                    <select id="assistantProvider" class="assistant-select">
+                        <option value="vapi">Vapi (cloud)</option>
+                        <option value="custom">Custom — xAI, OpenAI-compatible or local</option>
+                        <option value="codex">ChatGPT via Codex (experimental)</option>
+                    </select>
+                </div>
+            </div>
+        </section>
+
+        <!-- Vapi -->
+        <div id="vapiAssistantSection" class="section-stack">
+            <section class="group">
+                <h2 class="group-title"><span class="icon" style="--icon: url('icons/audio-lines.svg')"></span>Vapi assistant</h2>
+                <p class="group-intro assistant-hint">Your Vapi keys live in the API Keys tab. Assistants are created on the Vapi dashboard.</p>
+                <div class="row">
+                    <label class="row-label" for="assistantIDSelect">Assistant</label>
+                    <div class="row-control">
+                        <select id="assistantIDSelect">
+                            <option value="">Loading assistants…</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="row stacked">
+                    <dl class="summary">
+                        <dt>Model</dt>
+                        <dd id="modelName"><span class="model-text">Loading model…</span></dd>
+                        <dt>Voice</dt>
+                        <dd id="voiceInfo"><span class="voice-text">Loading voice…</span></dd>
+                        <dt>System message</dt>
+                        <dd><pre id="systemMessage">Loading system message…</pre></dd>
+                        <dt>First message</dt>
+                        <dd id="firstMessage">Loading first message…</dd>
+                    </dl>
+                </div>
+            </section>
+        </div>
+
+        <!-- ChatGPT via Codex -->
+        <div id="codexAssistantSection" class="section-stack" hidden>
+            <section class="group">
+                <h2 class="group-title"><span class="icon" style="--icon: url('icons/message-circle-more.svg')"></span>ChatGPT voice</h2>
+                <p class="group-intro assistant-hint">Talk with the character using your ChatGPT account. Realtime voice is experimental and availability depends on your account.</p>
+                <div class="account-card">
+                    <p id="codexAccountStatus" role="status" aria-live="polite">Checking sign-in…</p>
+                    <div class="codex-actions">
+                        <button type="button" class="codex-button" id="codexSignIn">Sign in with ChatGPT</button>
+                        <button type="button" class="codex-button" id="codexCancelLogin" hidden>Cancel sign-in</button>
+                        <button type="button" class="codex-button" id="codexSignOut" hidden>Sign out</button>
+                        <button type="button" class="codex-button" id="codexRefresh">Refresh status</button>
+                        <a id="codexLoginLink" target="_blank" rel="noopener noreferrer" hidden>Continue sign-in</a>
+                    </div>
+                </div>
+                <div class="row">
+                    <label class="row-label" for="codexVoice">Voice</label>
+                    <div class="row-control">
+                        <select id="codexVoice">
+                            <option value="">Default (Cove)</option>
+                            <option value="cove">Cove</option>
+                            <option value="juniper">Juniper</option>
+                            <option value="maple">Maple</option>
+                            <option value="spruce">Spruce</option>
+                            <option value="ember">Ember</option>
+                            <option value="vale">Vale</option>
+                            <option value="breeze">Breeze</option>
+                            <option value="arbor">Arbor</option>
+                            <option value="sol">Sol</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="row">
+                    <label class="row-label" for="codexInstructions">Character instructions</label>
+                    <div class="row-control">
+                        <textarea id="codexInstructions" maxlength="8000" placeholder="A friendly voice assistant who speaks naturally and keeps replies concise."></textarea>
+                    </div>
+                </div>
+                <label class="row switch" for="codexAutoExpressions">
+                    <span class="row-label">Automatic expressions <span class="field-note">Experimental</span></span>
+                    <span class="row-control">
+                        <input type="checkbox" id="codexAutoExpressions" class="assistant-toggle"><span class="slider"></span>
+                        <span class="hint assistant-hint">Estimate facial expressions from the character’s English replies. Runs locally; first use downloads a roughly 125 MB model. Voice continues while it loads.</span>
                     </span>
-                    <select id="assistantIDSelect">
-                        <option value="">Loading assistants...</option>
-                    </select>
                 </label>
-                <span id="modelName" style="font-size: 1.2em;">
-                    <img src="icons/sparkles.svg" alt="Flask Icon" style="width: 20px; height: 20px; vertical-align: middle; margin-bottom: 5px;">
-                    <span class="model-text">Loading Model...</span>
-                </span>
-                <br>
-                <span id="voiceInfo" style="font-size: 1.2em;">
-                    <img src="icons/audio-lines.svg" alt="Flask Icon" style="width: 20px; height: 20px; vertical-align: middle; margin-bottom: 5px;">
-                    <span class="voice-text">Loading Voice...</span>
-                </span>
-                <br>
-                <span style="font-size: 1.2em;">
-                    <img src="icons/message-circle-code.svg" alt="Flask Icon" style="width: 20px; height: 20px; vertical-align: middle; margin-bottom: 5px;">
-                    System Message:
-                    <br>
-                    <pre id="systemMessage" style="white-space: pre-wrap; word-wrap: break-word;">Loading System Message...</pre>
-                </span>
-                <br>
-                <span style="font-size: 1.2em;">
-                    <img src="icons/message-circle-more.svg" alt="Flask Icon" style="width: 20px; height: 20px; vertical-align: middle; margin-bottom: 5px;">
-                    First Message:
-                    <br>
-                    <span id="firstMessage">Loading First Message...</span>
-                </span>
+            </section>
+
+            <section class="group">
+                <h2 class="group-title"><span class="icon" style="--icon: url('icons/flask-round.svg')"></span>Advanced</h2>
+                <p class="group-intro assistant-hint">Changes apply when you next press Start. Leave fields blank for the Codex defaults.</p>
+                <div class="row">
+                    <label class="row-label" for="codexModel">Realtime model <span class="field-note">Optional override</span></label>
+                    <div class="row-control">
+                        <input id="codexModel" type="text" maxlength="120" placeholder="Default: gpt-live-1-codex">
+                        <p class="hint assistant-hint">Overrides require a compatible realtime model available to your account.</p>
+                    </div>
+                </div>
+                <div class="row">
+                    <label class="row-label" for="codexWorkspace">Task workspace <span class="field-note">Optional</span></label>
+                    <div class="row-control">
+                        <input id="codexWorkspace" type="text" placeholder="Absolute path to an existing folder">
+                        <p class="hint assistant-hint">ChatGPT can research and work on files while you keep talking. Leave blank to use the app’s dedicated voice-workspace folder. Commands that need approval appear in the task panel on the character screen.</p>
+                    </div>
+                </div>
+                <div class="row">
+                    <label class="row-label" for="codexTaskModel">Task model <span class="field-note">Optional override</span></label>
+                    <div class="row-control">
+                        <input id="codexTaskModel" type="text" maxlength="120" placeholder="Default Codex task model">
+                        <p class="hint assistant-hint">Separate from the realtime voice model. Cancel task keeps voice connected; Stop ends voice and running work.</p>
+                    </div>
+                </div>
+            </section>
         </div>
 
-        <div id="codexAssistantSection" hidden>
-            <h1>ChatGPT voice</h1>
-            <p class="assistant-hint">Talk with the character using your ChatGPT account. Realtime voice is experimental and availability depends on your account.</p>
-            <label class="switch" for="codexAutoExpressions">
-                <span>Automatic expressions (experimental)</span>
-                <input type="checkbox" id="codexAutoExpressions" class="assistant-toggle">
-                <span class="slider round"></span>
-            </label>
-            <p class="assistant-hint">Estimate facial expressions from the character’s English replies. Runs locally; first use downloads a roughly 125 MB model. Voice continues while it loads.</p>
-            <p id="codexAccountStatus" role="status" aria-live="polite">Checking sign-in…</p>
-            <div class="codex-actions">
-                <button type="button" class="codex-button" id="codexSignIn">Sign in with ChatGPT</button>
-                <button type="button" class="codex-button" id="codexCancelLogin" hidden>Cancel sign-in</button>
-                <button type="button" class="codex-button" id="codexSignOut" hidden>Sign out</button>
-                <button type="button" class="codex-button" id="codexRefresh">Refresh status</button>
-                <a id="codexLoginLink" target="_blank" rel="noopener noreferrer" hidden>Continue sign-in</a>
-            </div>
-            <label class="switch" for="codexVoice">
-                <span>Voice</span>
-                <select id="codexVoice" class="rounded-input">
-                    <option value="">Default (Cove)</option>
-                    <option value="cove">Cove</option>
-                    <option value="juniper">Juniper</option>
-                    <option value="maple">Maple</option>
-                    <option value="spruce">Spruce</option>
-                    <option value="ember">Ember</option>
-                    <option value="vale">Vale</option>
-                    <option value="breeze">Breeze</option>
-                    <option value="arbor">Arbor</option>
-                    <option value="sol">Sol</option>
-                </select>
-            </label>
-            <label class="switch" for="codexModel">
-                <span>Realtime model override (optional)</span>
-                <input id="codexModel" class="rounded-input" maxlength="120" placeholder="Default: gpt-live-1-codex">
-            </label>
-            <p class="assistant-hint">Changes apply when you next press Play. Leave the model blank for the Codex default; overrides require a compatible realtime model available to your account.</p>
-            <label class="switch" for="codexInstructions">
-                <span>Character instructions</span>
-                <textarea id="codexInstructions" class="rounded-input" maxlength="8000" placeholder="A friendly voice assistant who speaks naturally and keeps replies concise."></textarea>
-            </label>
-            <label class="switch" for="codexWorkspace">
-                <span>Task workspace (optional)</span>
-                <input id="codexWorkspace" class="rounded-input" placeholder="Absolute path to an existing folder">
-            </label>
-            <p class="assistant-hint">ChatGPT can research and work on files while you keep talking. Leave the workspace blank to use the app’s dedicated voice-workspace folder. Tasks can edit files there; commands requiring approval appear in the task panel.</p>
-            <label class="switch" for="codexTaskModel">
-                <span>Task model override (optional)</span>
-                <input id="codexTaskModel" class="rounded-input" maxlength="120" placeholder="Default Codex task model">
-            </label>
-            <p class="assistant-hint">The task model is separate from the realtime voice model. Changes apply on the next session. Cancel task keeps voice connected; Stop ends voice and running work.</p>
+        <!-- Custom: xAI, OpenAI-compatible or local -->
+        <div id="customAssistantSection" class="section-stack" hidden>
+            <section class="group">
+                <h2 class="group-title"><span class="icon" style="--icon: url('icons/lightbulb.svg')"></span>Quick setup</h2>
+                <p class="group-intro assistant-hint">Fill in the fields below with sensible defaults for a provider. You can still edit everything afterwards.</p>
+                <div class="row stacked">
+                    <div class="chips">
+                        <button class="preset-button" type="button" data-preset="xai">xAI</button>
+                        <button class="preset-button" type="button" data-preset="openai">OpenAI</button>
+                        <button class="preset-button" type="button" data-preset="ollama">Ollama (local)</button>
+                        <button class="preset-button" type="button" data-preset="lmstudio">LM Studio (local)</button>
+                    </div>
+                </div>
+            </section>
+
+            <section class="group">
+                <h2 class="group-title"><span class="icon" style="--icon: url('icons/message-circle-code.svg')"></span>Language model</h2>
+                <div class="row">
+                    <label class="row-label" for="llmBaseUrl">Base URL <span class="field-note">OpenAI-compatible</span></label>
+                    <div class="row-control">
+                        <input type="text" id="llmBaseUrl" placeholder="https://api.x.ai/v1" class="rounded-input assistant-field">
+                    </div>
+                </div>
+                <div class="row">
+                    <label class="row-label" for="llmApiKey">API key <span class="field-note">Optional for local servers</span></label>
+                    <div class="row-control">
+                        <div class="input-wrapper">
+                            <input type="password" id="llmApiKey" placeholder="xai-… / sk-…" class="rounded-input assistant-field">
+                            <button class="toggle-visibility" type="button" data-target="llmApiKey" aria-label="Show or hide key">
+                                <img src="icons/eye-off.svg" alt="" class="input-icon">
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <label class="row-label" for="llmModel">Model</label>
+                    <div class="row-control">
+                        <input type="text" id="llmModel" placeholder="grok-4.6" class="rounded-input assistant-field">
+                    </div>
+                </div>
+                <div class="row">
+                    <label class="row-label" for="llmSystemPrompt">System prompt</label>
+                    <div class="row-control">
+                        <textarea id="llmSystemPrompt" class="rounded-input assistant-field" placeholder="You are a friendly voice assistant. Reply in short, natural spoken sentences without markdown."></textarea>
+                    </div>
+                </div>
+                <div class="row">
+                    <label class="row-label" for="llmFirstMessage">First message <span class="field-note">Optional</span></label>
+                    <div class="row-control">
+                        <input type="text" id="llmFirstMessage" placeholder="Hey there! How can I help?" class="rounded-input assistant-field">
+                    </div>
+                </div>
+            </section>
+
+            <section class="group">
+                <h2 class="group-title"><span class="icon" style="--icon: url('icons/audio-lines.svg')"></span>Speech to text</h2>
+                <div class="row">
+                    <label class="row-label" for="sttProvider">Provider</label>
+                    <div class="row-control">
+                        <select id="sttProvider" class="assistant-select">
+                            <option value="xai">xAI</option>
+                            <option value="openai">OpenAI-compatible (Whisper)</option>
+                            <option value="browser">Browser (Chrome, no key)</option>
+                        </select>
+                        <p class="hint assistant-hint stt-browser-only" hidden>Uses Chrome's built-in recognition, so audio is sent to Google. Zero setup, no key.</p>
+                    </div>
+                </div>
+                <div class="stt-server-only">
+                    <div class="row">
+                        <label class="row-label" for="sttBaseUrl">Base URL</label>
+                        <div class="row-control">
+                            <input type="text" id="sttBaseUrl" placeholder="Same as language model" class="rounded-input assistant-field">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <label class="row-label" for="sttApiKey">API key</label>
+                        <div class="row-control">
+                            <div class="input-wrapper">
+                                <input type="password" id="sttApiKey" placeholder="Same as language model" class="rounded-input assistant-field">
+                                <button class="toggle-visibility" type="button" data-target="sttApiKey" aria-label="Show or hide key">
+                                    <img src="icons/eye-off.svg" alt="" class="input-icon">
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="stt-openai-only">
+                        <div class="row">
+                            <label class="row-label" for="sttModel">Model</label>
+                            <div class="row-control">
+                                <input type="text" id="sttModel" placeholder="whisper-1" class="rounded-input assistant-field">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section class="group">
+                <h2 class="group-title"><span class="icon" style="--icon: url('icons/audio-lines.svg')"></span>Text to speech</h2>
+                <div class="row">
+                    <label class="row-label" for="ttsProvider">Provider</label>
+                    <div class="row-control">
+                        <select id="ttsProvider" class="assistant-select">
+                            <option value="xai">xAI</option>
+                            <option value="openai">OpenAI-compatible</option>
+                            <option value="kokoro">Kokoro in the browser (free, offline)</option>
+                            <option value="browser">Browser voices (OS)</option>
+                        </select>
+                        <p class="hint assistant-hint tts-kokoro-only" hidden>Runs locally on your GPU or CPU. Downloads a 90 to 330 MB model on first use, then works offline.</p>
+                    </div>
+                </div>
+                <div class="tts-server-only">
+                    <div class="row">
+                        <label class="row-label" for="ttsBaseUrl">Base URL</label>
+                        <div class="row-control">
+                            <input type="text" id="ttsBaseUrl" placeholder="Same as language model" class="rounded-input assistant-field">
+                        </div>
+                    </div>
+                    <div class="row">
+                        <label class="row-label" for="ttsApiKey">API key</label>
+                        <div class="row-control">
+                            <div class="input-wrapper">
+                                <input type="password" id="ttsApiKey" placeholder="Same as language model" class="rounded-input assistant-field">
+                                <button class="toggle-visibility" type="button" data-target="ttsApiKey" aria-label="Show or hide key">
+                                    <img src="icons/eye-off.svg" alt="" class="input-icon">
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tts-openai-only">
+                        <div class="row">
+                            <label class="row-label" for="ttsModel">Model</label>
+                            <div class="row-control">
+                                <input type="text" id="ttsModel" placeholder="tts-1" class="rounded-input assistant-field">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <label class="row-label" for="ttsVoice">Voice</label>
+                    <div class="row-control">
+                        <input type="text" id="ttsVoice" list="ttsVoiceOptions" placeholder="eve" class="rounded-input assistant-field" autocomplete="off">
+                        <datalist id="ttsVoiceOptions"></datalist>
+                    </div>
+                </div>
+                <div class="row">
+                    <label class="row-label" for="ttsSpeed">Speed <span class="field-note">0.7 to 1.5</span></label>
+                    <div class="row-control">
+                        <input type="text" id="ttsSpeed" inputmode="decimal" placeholder="1.0" class="rounded-input assistant-field">
+                    </div>
+                </div>
+            </section>
+
+            <section class="group">
+                <h2 class="group-title"><span class="icon" style="--icon: url('icons/message-circle-more.svg')"></span>Conversation</h2>
+                <div class="row">
+                    <label class="row-label" for="assistantLanguage">Language <span class="field-note">e.g. en, fr, de</span></label>
+                    <div class="row-control">
+                        <input type="text" id="assistantLanguage" placeholder="auto" class="rounded-input assistant-field">
+                    </div>
+                </div>
+                <label class="row switch">
+                    <span class="row-label">Allow interrupting <span class="field-note">Barge-in: the character stops talking when you speak</span></span>
+                    <span class="row-control"><input type="checkbox" id="bargeIn" class="assistant-toggle"><span class="slider"></span></span>
+                </label>
+            </section>
         </div>
 
-        <div id="customAssistantSection" hidden>
-            <span class="assistant-hint">
-                <img src="icons/lightbulb.svg" alt="" style="width: 20px; height: 20px; vertical-align: middle; margin-bottom: 5px;">
-                Quick setup:
-                <button class="preset-button" data-preset="xai">xAI</button>
-                <button class="preset-button" data-preset="openai">OpenAI</button>
-                <button class="preset-button" data-preset="ollama">Ollama (local)</button>
-                <button class="preset-button" data-preset="lmstudio">LM Studio (local)</button>
-            </span>
-
-        <h1>
-            <img src="icons/message-circle-code.svg" alt="Language Model" style="width: 40px; height: 40px; filter: invert(48%) sepia(79%) saturate(376%) hue-rotate(93deg) brightness(88%) contrast(84%); vertical-align: middle; margin-bottom: 5px;">
-            Language Model
-        </h1>
-        <div class="input-container">
-            <label for="llmBaseUrl" style="font-size: 1.2em;">Base URL <span class="field-note">OpenAI-compatible</span></label>
-            <div class="input-wrapper">
-                <input type="text" id="llmBaseUrl" placeholder="https://api.x.ai/v1" class="rounded-input assistant-field">
-            </div>
-        </div>
-        <div class="input-container">
-            <label for="llmApiKey" style="font-size: 1.2em;">API Key <span class="field-note">optional for local servers</span></label>
-            <div class="input-wrapper">
-                <input type="password" id="llmApiKey" placeholder="xai-… / sk-…" class="rounded-input assistant-field">
-                <button class="toggle-visibility" data-target="llmApiKey">
-                    <img src="icons/eye-off.svg" alt="Toggle Visibility" class="input-icon" style="vertical-align: middle;">
-                </button>
-            </div>
-        </div>
-        <div class="input-container">
-            <label for="llmModel" style="font-size: 1.2em;">Model</label>
-            <div class="input-wrapper">
-                <input type="text" id="llmModel" placeholder="grok-4.6" class="rounded-input assistant-field">
-            </div>
-        </div>
-        <div class="input-container">
-            <label for="llmSystemPrompt" style="font-size: 1.2em;">System Prompt</label>
-            <div class="input-wrapper">
-                <textarea id="llmSystemPrompt" class="rounded-input assistant-field" placeholder="You are a friendly voice assistant. Reply in short, natural spoken sentences without markdown."></textarea>
-            </div>
-        </div>
-        <div class="input-container">
-            <label for="llmFirstMessage" style="font-size: 1.2em;">First Message <span class="field-note">optional</span></label>
-            <div class="input-wrapper">
-                <input type="text" id="llmFirstMessage" placeholder="Hey there! How can I help?" class="rounded-input assistant-field">
-            </div>
-        </div>
-
-        <h1>
-            <img src="icons/audio-lines.svg" alt="Speech to Text" style="width: 40px; height: 40px; filter: invert(48%) sepia(79%) saturate(376%) hue-rotate(93deg) brightness(88%) contrast(84%); vertical-align: middle; margin-bottom: 5px;">
-            Speech to Text
-        </h1>
-        <label class="switch">
-            <span>Provider</span>
-            <select id="sttProvider" class="assistant-select">
-                <option value="xai">xAI</option>
-                <option value="openai">OpenAI-compatible (Whisper)</option>
-                <option value="browser">Browser (Chrome, no key)</option>
-            </select>
-        </label>
-        <span class="assistant-hint stt-browser-only" hidden>Uses Chrome's built-in recognition — audio is sent to Google. Zero setup, no key.</span>
-        <div class="stt-server-only">
-        <div class="input-container">
-            <label for="sttBaseUrl" style="font-size: 1.2em;">Base URL</label>
-            <div class="input-wrapper">
-                <input type="text" id="sttBaseUrl" placeholder="Same as LLM" class="rounded-input assistant-field">
-            </div>
-        </div>
-        <div class="input-container">
-            <label for="sttApiKey" style="font-size: 1.2em;">API Key</label>
-            <div class="input-wrapper">
-                <input type="password" id="sttApiKey" placeholder="Same as LLM" class="rounded-input assistant-field">
-                <button class="toggle-visibility" data-target="sttApiKey">
-                    <img src="icons/eye-off.svg" alt="Toggle Visibility" class="input-icon" style="vertical-align: middle;">
-                </button>
-            </div>
-        </div>
-            <div class="stt-openai-only">
-        <div class="input-container">
-            <label for="sttModel" style="font-size: 1.2em;">Model</label>
-            <div class="input-wrapper">
-                <input type="text" id="sttModel" placeholder="whisper-1" class="rounded-input assistant-field">
-            </div>
-        </div>
-            </div>
-        </div>
-
-        <h1>
-            <img src="icons/audio-lines.svg" alt="Text to Speech" style="width: 40px; height: 40px; filter: invert(48%) sepia(79%) saturate(376%) hue-rotate(93deg) brightness(88%) contrast(84%); vertical-align: middle; margin-bottom: 5px;">
-            Text to Speech
-        </h1>
-        <label class="switch">
-            <span>Provider</span>
-            <select id="ttsProvider" class="assistant-select">
-                <option value="xai">xAI</option>
-                <option value="openai">OpenAI-compatible</option>
-                <option value="kokoro">Kokoro in the browser (free, offline)</option>
-                <option value="browser">Browser voices (OS)</option>
-            </select>
-        </label>
-        <span class="assistant-hint tts-kokoro-only" hidden>Runs locally on your GPU/CPU. Downloads a ~90–330 MB model on first use, then works offline.</span>
-        <div class="tts-server-only">
-        <div class="input-container">
-            <label for="ttsBaseUrl" style="font-size: 1.2em;">Base URL</label>
-            <div class="input-wrapper">
-                <input type="text" id="ttsBaseUrl" placeholder="Same as LLM" class="rounded-input assistant-field">
-            </div>
-        </div>
-        <div class="input-container">
-            <label for="ttsApiKey" style="font-size: 1.2em;">API Key</label>
-            <div class="input-wrapper">
-                <input type="password" id="ttsApiKey" placeholder="Same as LLM" class="rounded-input assistant-field">
-                <button class="toggle-visibility" data-target="ttsApiKey">
-                    <img src="icons/eye-off.svg" alt="Toggle Visibility" class="input-icon" style="vertical-align: middle;">
-                </button>
-            </div>
-        </div>
-            <div class="tts-openai-only">
-        <div class="input-container">
-            <label for="ttsModel" style="font-size: 1.2em;">Model</label>
-            <div class="input-wrapper">
-                <input type="text" id="ttsModel" placeholder="tts-1" class="rounded-input assistant-field">
-            </div>
-        </div>
-            </div>
-        </div>
-        <div class="input-container">
-            <label for="ttsVoice" style="font-size: 1.2em;">Voice</label>
-            <div class="input-wrapper">
-                <input type="text" id="ttsVoice" list="ttsVoiceOptions" placeholder="eve" class="rounded-input assistant-field" autocomplete="off">
-                <datalist id="ttsVoiceOptions"></datalist>
-            </div>
-        </div>
-        <div class="input-container">
-            <label for="ttsSpeed" style="font-size: 1.2em;">Speed <span class="field-note">0.7 – 1.5</span></label>
-            <div class="input-wrapper">
-                <input type="text" id="ttsSpeed" placeholder="1.0" class="rounded-input assistant-field">
-            </div>
-        </div>
-
-        <h1>
-            <img src="icons/flask-round.svg" alt="Conversation" style="width: 40px; height: 40px; filter: invert(48%) sepia(79%) saturate(376%) hue-rotate(93deg) brightness(88%) contrast(84%); vertical-align: middle; margin-bottom: 5px;">
-            Conversation
-        </h1>
-        <div class="input-container">
-            <label for="assistantLanguage" style="font-size: 1.2em;">Language <span class="field-note">e.g. en, fr, de</span></label>
-            <div class="input-wrapper">
-                <input type="text" id="assistantLanguage" placeholder="auto" class="rounded-input assistant-field">
-            </div>
-        </div>
-        <label class="switch">
-            <span>Allow interrupting the character (barge-in)</span>
-            <input type="checkbox" id="bargeIn" class="assistant-toggle">
-            <span class="slider"></span>
-        </label>
-        </div>
     </div>
 
-    <div id="api-keys-tab" class="tab-content" style="background-color: #fbfbf7; padding: 10px; border-radius: 15px;">
-        <h1>
-            <img src="icons/audio-lines.svg" alt="Flask Icon" style="width: 40px; height: 40px; filter: invert(48%) sepia(79%) saturate(376%) hue-rotate(93deg) brightness(88%) contrast(84%); vertical-align: middle; margin-bottom: 5px;">
-            Vapi
-        </h1>
-        
-        <span style="font-size: 1.2em;">
-            <img src="icons/lightbulb.svg" alt="Flask Icon" style="width: 20px; height: 20px; vertical-align: middle; margin-bottom: 5px;">
-            Refresh after changing your private key
-        </span>
-        <br>
-        <br>
-
-        <div class="input-container">
-            <label for="publicKey" style="font-size: 1.2em;">Public Key</label>
-            <div class="input-wrapper">
-                <input type="password" id="publicKey" placeholder="0000XXXX-XXXX-XXXX-XXXX-XXXXXXXX0000" class="rounded-input">
-                <button class="toggle-visibility" data-target="publicKey">
-                    <img src="icons/eye-off.svg" alt="Toggle Visibility" class="input-icon" style="vertical-align: middle;">
-                </button>
+    <!-- ───────────────────────────── API keys ───────────────────────────── -->
+    <div id="api-keys-tab" class="tab-content">
+        <section class="group">
+            <h2 class="group-title"><span class="icon" style="--icon: url('icons/key-round.svg')"></span>Vapi</h2>
+            <p class="group-intro">Keys are stored locally in settings.json. Reload this page after changing the private key so the assistant list refreshes.</p>
+            <div class="row">
+                <label class="row-label" for="publicKey">Public key</label>
+                <div class="row-control">
+                    <div class="input-wrapper">
+                        <input type="password" id="publicKey" placeholder="0000XXXX-XXXX-XXXX-XXXX-XXXXXXXX0000" class="rounded-input">
+                        <button class="toggle-visibility" type="button" data-target="publicKey" aria-label="Show or hide key">
+                            <img src="icons/eye-off.svg" alt="" class="input-icon">
+                        </button>
+                    </div>
+                    <button class="save-button" type="button">Save</button>
+                </div>
             </div>
-            <button class="save-button">Save</button>
-        </div>
-        
-        <div class="input-container">
-            <label for="privateKey" style="font-size: 1.2em;">Private Key</label>
-            <div class="input-wrapper">
-                <input type="password" id="privateKey" placeholder="0000XXXX-XXXX-XXXX-XXXX-XXXXXXXX0000" class="rounded-input">
-                <button class="toggle-visibility" data-target="privateKey">
-                    <img src="icons/eye-off.svg" alt="Toggle Visibility" class="input-icon">
-                </button>
+            <div class="row">
+                <label class="row-label" for="privateKey">Private key</label>
+                <div class="row-control">
+                    <div class="input-wrapper">
+                        <input type="password" id="privateKey" placeholder="0000XXXX-XXXX-XXXX-XXXX-XXXXXXXX0000" class="rounded-input">
+                        <button class="toggle-visibility" type="button" data-target="privateKey" aria-label="Show or hide key">
+                            <img src="icons/eye-off.svg" alt="" class="input-icon">
+                        </button>
+                    </div>
+                    <button class="save-button" type="button">Save</button>
+                </div>
             </div>
-            <button class="save-button">Save</button>
-        </div>
+        </section>
     </div>
-    
-    <!-- Add this hidden file input element just before the closing </body> tag -->
-    <input type="file" id="characterUpload" style="display: none;" multiple accept=".png,.vrm,.zip">
 
-    <script src="settings.js"></script>
-    <script type="module" src="settings-codex.js"></script>
+</div>
+
+<input type="file" id="characterUpload" style="display: none;" multiple accept=".png,.vrm,.zip">
+
+<script src="settings.js"></script>
+<script type="module" src="settings-codex.js"></script>
 </body>
 </html>

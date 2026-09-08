@@ -274,7 +274,7 @@ test('a scheduled browser recognition restart cannot reopen the mic after stop',
 
 // Exercise main.js's session controls without booting the unrelated Three.js scene.
 function mainHarness(createAssistant) {
-  const requests = [], button = {}, statuses = {};
+  const requests = [], button = { dataset: {} }, statuses = { dataset: {}, classList: { toggle() {} } };
   const context = vm.createContext({
     console, createAssistant, currentVrm: null,
     window: { addEventListener() {} },
@@ -294,7 +294,7 @@ test('Stop during settings fetch prevents a late session from starting', async (
   const starting = h.toggle(); await h.toggle();
   h.requests[0].resolve({ json: async () => ({}) }); await starting;
   assert.equal(starts, 0);
-  assert.equal(h.button.textContent, '▶️');
+  assert.equal(h.button.dataset.active, 'false');
 });
 
 test('failure from a stopped startup cannot stop a newer session', async () => {
@@ -307,5 +307,5 @@ test('failure from a stopped startup cannot stop a newer session', async () => {
   const restarting = h.toggle(); h.requests[1].resolve({ json: async () => ({}) }); await restarting;
   first.reject(new Error('old startup failed')); await starting;
   assert.equal(newStops, 0);
-  assert.equal(h.button.textContent, '🛑');
+  assert.equal(h.button.dataset.active, 'true');
 });

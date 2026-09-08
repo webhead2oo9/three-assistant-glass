@@ -25,7 +25,7 @@ async function readAccount() {
     cancel.hidden = !pending;
     if (!pending) loginLink.hidden = true;
     status.textContent = signedIn
-      ? `Signed in${result.account.email ? ` as ${result.account.email}` : ''}${result.account.planType ? ` · ${result.account.planType}` : ''}. Return to the character and press Play.`
+      ? `Signed in${result.account.email ? ` as ${result.account.email}` : ''}${result.account.planType ? ` · ${result.account.planType}` : ''}. Return to the character and press Start.`
       : pending ? 'Complete sign-in in your browser…'
         : result.login?.error || 'Sign in with ChatGPT to try realtime voice.';
     if (pending) timer = setTimeout(readAccount, 1500);
