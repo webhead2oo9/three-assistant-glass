@@ -309,3 +309,24 @@ test('failure from a stopped startup cannot stop a newer session', async () => {
   assert.equal(newStops, 0);
   assert.equal(h.button.dataset.active, 'true');
 });
+
+test('streamChat surfaces tool events and server-side errors from the SSE stream', async () => {
+  const frames = [
+    'data: {"choices":[{"delta":{"content":"Let me check. "}}]}\n\n',
+    'data: {"tool":{"name":"get_time","label":"Checking the time…"}}\n\n',
+    'data: {"choices":[{"delta":{"content":"It is noon."}}]}\n\ndata: [DONE]\n\n',
+  ];
+  const encoder = new TextEncoder();
+  const body = (parts) => ({ getReader() {
+    const queue = [...parts];
+    return { read: async () => queue.length ? { done: false, value: encoder.encode(queue.shift()) } : { done: true } };
+  } });
+  const module = await load('assistant/llm.js', { fetch: async () => ({ ok: true, body: body(frames) }), TextDecoder });
+  const deltas = [], tools = [];
+  const text = await module.streamChat([], { onDelta: (d) => deltas.push(d), onTool: (t) => tools.push(t) });
+  assert.equal(text, 'Let me check. It is noon.');
+  assert.deepEqual(snapshot(tools), [{ name: 'get_time', label: 'Checking the time…' }]);
+
+  const failing = await load('assistant/llm.js', { fetch: async () => ({ ok: true, body: body(['data: {"error":"tool exploded"}\n\n']) }), TextDecoder });
+  await assert.rejects(failing.streamChat([]), /tool exploded/);
+});

@@ -1,8 +1,10 @@
 // Streams a chat completion through the server proxy (/api/assistant/chat),
 // which adds the model, base URL and API key from settings.json so the key
 // never reaches the browser and there are no CORS issues with local servers.
+// The server also runs tool calls; `{"tool": {name, label}}` frames arrive
+// while one is running so the UI can show what's happening.
 
-export async function streamChat(messages, { signal, onDelta } = {}) {
+export async function streamChat(messages, { signal, onDelta, onTool } = {}) {
   const res = await fetch('/api/assistant/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -33,13 +35,16 @@ export async function streamChat(messages, { signal, onDelta } = {}) {
       if (!data || data === '[DONE]') continue;
       try {
         const json = JSON.parse(data);
+        if (json.tool) { onTool?.(json.tool); continue; }
+        if (json.error) throw new Error(json.error);
         const delta = json.choices?.[0]?.delta?.content;
         if (delta) {
           full += delta;
           onDelta?.(delta);
         }
-      } catch {
-        // ignore keep-alive / malformed frames
+      } catch (err) {
+        if (err instanceof SyntaxError) continue; // keep-alive / malformed frames
+        throw err;
       }
     }
   }

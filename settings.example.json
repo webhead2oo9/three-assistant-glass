@@ -20,6 +20,8 @@
   "llmModel": "grok-4.6",
   "llmSystemPrompt": "",
   "llmFirstMessage": "Hey there! How can I help?",
+  "llmStream": true,
+  "llmTools": true,
   "sttProvider": "xai",
   "sttBaseUrl": "",
   "sttApiKey": "",

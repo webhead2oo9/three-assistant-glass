@@ -356,7 +356,7 @@ const ASSISTANT_TEXT_FIELDS = [
     'codexInstructions', 'codexModel', 'codexWorkspace', 'codexTaskModel',
 ];
 const ASSISTANT_SELECTS = ['assistantProvider', 'sttProvider', 'ttsProvider', 'codexVoice'];
-const ASSISTANT_TOGGLES = ['bargeIn', 'codexAutoExpressions'];
+const ASSISTANT_TOGGLES = ['bargeIn', 'llmStream', 'llmTools', 'codexAutoExpressions'];
 
 const ASSISTANT_PRESETS = {
     xai:      { llmBaseUrl: 'https://api.x.ai/v1', llmModel: 'grok-4.6', sttProvider: 'xai', ttsProvider: 'xai', ttsVoice: 'eve', sttBaseUrl: '', ttsBaseUrl: '' },
@@ -451,6 +451,8 @@ async function initAssistantTab() {
     document.getElementById('ttsProvider').value = settings.ttsProvider || 'xai';
     document.getElementById('codexVoice').value = settings.codexVoice || '';
     document.getElementById('bargeIn').checked = settings.bargeIn !== false;
+    document.getElementById('llmStream').checked = settings.llmStream !== false;
+    document.getElementById('llmTools').checked = settings.llmTools !== false;
     document.getElementById('codexAutoExpressions').checked = settings.codexAutoExpressions === true;
     updateAssistantUI();
 

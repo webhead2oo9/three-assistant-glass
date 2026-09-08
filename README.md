@@ -93,6 +93,10 @@ Instead of Vapi you can wire the character to your own model and voices. Everyth
 3. Speech-to-text and text-to-speech default to the language model's URL and key; override them to mix providers (e.g. Ollama for chat, xAI for voice)
 4. Press **Start** and allow microphone access. Toggle *barge-in* off if the character keeps interrupting itself on a loud speaker setup.
 
+The system prompt can use `{{date}}`, `{{hour}}` and `{{timezone}}`; they're filled in on every request. The exact time is deliberately not a placeholder (it would break provider-side prompt caching) — the model gets it through a tool instead.
+
+**Tools.** The model can call `get_time` (exact local time) and `open_url` (open a page in your default browser). Tools work with streaming and non-streaming servers; if the model or server rejects tools, the request is retried without them and tools are skipped for that model from then on. Turn off *Stream responses* for servers without streaming support, or *Tools* to never send tool definitions.
+
 | Provider | Speech-to-text | Text-to-speech | Notes |
 |---|---|---|---|
 | xAI | `POST /v1/stt` | `POST /v1/tts` | Cheapest hosted option; one key |

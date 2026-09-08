@@ -12,6 +12,9 @@ import multer from 'multer';
 import AdmZip from 'adm-zip';
 import { CodexClient } from './server/codex-client.mjs';
 import { createCodexRouter, localCodexRequest } from './server/codex-routes.mjs';
+import { createChatRunner, UpstreamError } from './server/chat.mjs';
+import { createTools } from './server/tools.mjs';
+import { renderSystemMessages } from './server/prompt.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -126,7 +129,7 @@ app.post('/api/settings', express.json(), (req, res, next) => {
       'characterName', 'assistantID', 'settingsIconToggle', 'assistantShortcut',
       // Custom assistant (Settings → Assistant)
       'assistantProvider', 'assistantLanguage', 'bargeIn',
-      'llmBaseUrl', 'llmApiKey', 'llmModel', 'llmSystemPrompt', 'llmFirstMessage',
+      'llmBaseUrl', 'llmApiKey', 'llmModel', 'llmSystemPrompt', 'llmFirstMessage', 'llmStream', 'llmTools',
       'sttProvider', 'sttBaseUrl', 'sttApiKey', 'sttModel',
       'ttsProvider', 'ttsBaseUrl', 'ttsApiKey', 'ttsModel', 'ttsVoice', 'ttsSpeed',
       'codexInstructions', 'codexModel', 'codexVoice', 'codexWorkspace', 'codexTaskModel', 'codexAutoExpressions',
@@ -239,33 +242,53 @@ async function upstreamError(res, upstream) {
   res.status(upstream.status).type('text/plain').send(body);
 }
 
-// Streams an OpenAI-compatible chat completion back as SSE
+// One assistant turn. The browser always receives SSE in the OpenAI delta
+// shape plus `{"tool": {name, label}}` events while a tool runs, whether the
+// upstream streamed or not. System prompt placeholders ({{date}}, {{hour}},
+// {{timezone}}) are filled in here so the browser never needs to know.
+const chatRunner = createChatRunner();
+const assistantTools = createTools();
+
 app.post('/api/assistant/chat', express.json({ limit: '1mb' }), async (req, res) => {
   const { baseUrl, apiKey, model } = llmConfig();
   // Cancel the upstream stream if the browser goes away mid-response
   // (res 'close' fires on disconnect; req 'close' would fire once the body is read)
   const controller = new AbortController();
   res.on('close', () => { if (!res.writableFinished) controller.abort(); });
+  const send = (payload) => { if (!res.writableEnded) res.write(`data: ${JSON.stringify(payload)}\n\n`); };
 
   try {
-    const upstream = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders(apiKey) },
-      body: JSON.stringify({ model, messages: req.body.messages || [], stream: true }),
-      signal: controller.signal,
-    });
-    if (!upstream.ok) return upstreamError(res, upstream);
+    const messages = renderSystemMessages(req.body.messages || []);
+    const stream = settings.llmStream !== false;
+    const tools = settings.llmTools !== false ? assistantTools : null;
+    let headersSent = false;
+    const open = () => {
+      if (headersSent) return;
+      headersSent = true;
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.flushHeaders();
+    };
 
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.flushHeaders();
-    for await (const chunk of upstream.body) res.write(chunk);
+    await chatRunner.run({
+      baseUrl, apiKey, model, messages, tools, stream,
+      signal: controller.signal,
+      onDelta: (content) => { open(); send({ choices: [{ delta: { content } }] }); },
+      onToolCall: (tool) => { open(); console.log(`[assistant] tool ${tool.name}`); send({ tool }); },
+    });
+    open();
+    if (!res.writableEnded) res.write('data: [DONE]\n\n');
     res.end();
   } catch (error) {
     if (controller.signal.aborted) return;
-    console.error('[assistant/chat]', error);
+    if (error instanceof UpstreamError) {
+      console.error(`[assistant] ${error.message}`);
+      if (!res.headersSent) return res.status(error.status).type('text/plain').send(error.body);
+    } else {
+      console.error('[assistant/chat]', error);
+    }
     if (!res.headersSent) res.status(502).json({ error: error.message });
-    else res.end();
+    else { send({ error: error.message }); res.end(); }
   }
 });
 

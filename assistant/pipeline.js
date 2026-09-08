@@ -125,6 +125,11 @@ export function createAssistant(settings, ui) {
           turn.text += delta;
           splitter.push(delta); // the bubble updates as sentences are *spoken*
         },
+        onTool: (tool) => {
+          if (!running || reply !== turn) return;
+          splitter.flush(); // speak anything said before the call ("Let me check…")
+          ui.onStatus(tool.label || 'Working…');
+        },
       });
       if (running && reply === turn) splitter.flush();
     } catch (err) {

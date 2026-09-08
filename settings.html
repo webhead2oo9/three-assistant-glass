@@ -305,6 +305,7 @@
                     <label class="row-label" for="llmSystemPrompt">System prompt</label>
                     <div class="row-control">
                         <textarea id="llmSystemPrompt" class="rounded-input assistant-field" placeholder="You are a friendly voice assistant. Reply in short, natural spoken sentences without markdown."></textarea>
+                        <p class="hint assistant-hint">Placeholders <code>{{date}}</code>, <code>{{hour}}</code> and <code>{{timezone}}</code> are filled in on every request. The exact time is left out on purpose so the prompt stays cacheable; the model can ask for it with a tool.</p>
                     </div>
                 </div>
                 <div class="row">
@@ -313,6 +314,14 @@
                         <input type="text" id="llmFirstMessage" placeholder="Hey there! How can I help?" class="rounded-input assistant-field">
                     </div>
                 </div>
+                <label class="row switch">
+                    <span class="row-label">Stream responses <span class="field-note">Turn off for servers that don't support streaming</span></span>
+                    <span class="row-control"><input type="checkbox" id="llmStream" class="assistant-toggle"><span class="slider"></span></span>
+                </label>
+                <label class="row switch">
+                    <span class="row-label">Tools <span class="field-note">Let the model check the time and open links. Skipped automatically when the model can't use tools</span></span>
+                    <span class="row-control"><input type="checkbox" id="llmTools" class="assistant-toggle"><span class="slider"></span></span>
+                </label>
             </section>
 
             <section class="group">
