@@ -1,10 +1,10 @@
+import { createExpressionController } from './assistant/expressions.js';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
 import { loadMixamoAnimation } from './loadMixamoAnimation.js';
 import { SVGLoader } from 'three/addons/loaders/SVGLoader.js';
-import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 import { LookingGlassWebXRPolyfill, LookingGlassConfig } from "@lookingglass/webxr"
 import { VRButton } from "three/addons/webxr/VRButton.js";
 import { createAssistant } from './assistant/pipeline.js';
@@ -50,6 +50,7 @@ let defaultModelUrl = 'characters/AvatarSample_A.vrm'; // ships with the repo; o
 let currentSettings = {};
 
 let currentVrm = undefined;
+const characterExpressions = createExpressionController();
 let currentAnimationUrl = undefined;
 let currentMixer = undefined;
 let currentAnimationName = 'idleFemale.fbx'; // Start with idle animation name
@@ -58,6 +59,8 @@ let currentVrmName = 'Loading VRM...';
 let vrmNameMesh;
 
 let currentSpeaker = 'Character';
+let captionText = '';
+let xrPresenting = false; // the 3D caption is only drawn inside a Looking Glass session
 
 let lastBlinkTime = 0;
 const blinkInterval = 4; // Average time between blinks in seconds
@@ -83,6 +86,10 @@ function checkSettingsChanges() {
   fetch('/api/settings')
     .then(response => response.json())
     .then(newSettings => {
+      if (newSettings.codexAutoExpressions !== currentSettings.codexAutoExpressions) {
+        currentSettings.codexAutoExpressions = newSettings.codexAutoExpressions;
+        customAssistant?.setAutomaticExpressions?.(newSettings.codexAutoExpressions === true);
+      }
       if (JSON.stringify(newSettings) !== JSON.stringify(currentSettings)) {
         console.log('Settings have changed. Reloading page...');
         location.reload();
@@ -115,100 +122,44 @@ async function getCurrentIdleAnimation() {
     }
 }
 
-// Add this function to get the settingsIconToggle setting
-async function getSettingsIconToggle() {
-  try {
-    const response = await fetch('/api/settings');
-    const settings = await response.json();
-    return settings.settingsIconToggle || false;
-  } catch (error) {
-    console.error('Error fetching settingsIconToggle setting:', error);
-    return false;
+// HTML overlay: settings button, clock and toasts
+function applyOverlaySettings(settings) {
+  const settingsButton = document.getElementById('settingsButton');
+  settingsButton.hidden = !settings.settingsIconToggle;
+  settingsButton.addEventListener('click', () => {
+    window.open('/settings', 'popupWindow', 'width=950,height=908,scrollbars=yes,resizable=yes');
+  });
+
+  const clock = document.getElementById('clock');
+  clock.hidden = !settings.showTime;
+  if (settings.showTime) {
+    const hour12 = String(settings.timeFormat) !== '24';
+    const render = () => {
+      clock.textContent = new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12 });
+    };
+    render();
+    setInterval(render, 10000);
   }
+
+  const toggleButton = document.getElementById('toggleVapi');
+  toggleButton.title = settings.assistantShortcut
+    ? `Start or stop the assistant (shortcut: ${settings.assistantShortcut})`
+    : 'Start or stop the assistant';
 }
 
-// Modify the gears loading part
-async function loadGearsIfEnabled() {
-  const settingsIconToggle = await getSettingsIconToggle();
-  
-  if (settingsIconToggle) {
-    const fbxLoader = new FBXLoader();
-    fbxLoader.load('models/gears.fbx', (fbxScene) => {
-        fbxScene.scale.set(GEARS_SCALE, GEARS_SCALE, GEARS_SCALE);
-      
-      // Position the gears above the dark green rectangle
-        fbxScene.position.set(
-        roundedRect.position.x + greenRectWidth / 2 - 0.63,
-        roundedRect.position.y + greenRectHeight / 2 + GEARS_Y_OFFSET,
-        roundedRect.position.z + GEARS_Z_OFFSET
-      );
-
-      // Apply color to all meshes in the gears model
-        fbxScene.traverse((child) => {
-        if (child.isMesh) {
-          child.material = new THREE.MeshBasicMaterial({ color: GEARS_COLOR, depthTest: false });
-          // Add hover effect
-          child.userData.originalColor = GEARS_COLOR; // Store original color
-        }
-      });
-
-    uiRoot.add(fbxScene);
-
-      // Add rotation animation to gears
-      function animateGears() {
-        fbxScene.rotation.z += -0.002;
-        requestAnimationFrame(animateGears);
-      }
-      animateGears();
-
-      // Add hover event listeners
-      const raycaster = new THREE.Raycaster();
-      const mouse = new THREE.Vector2();
-
-      function onMouseMove(event) {
-        // Calculate mouse position in normalized device coordinates
-        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-        // Update the raycaster with the camera and mouse position
-        raycaster.setFromCamera(mouse, camera);
-        const intersects = raycaster.intersectObjects(fbxScene.children);
-
-        // Reset colors
-        fbxScene.traverse((child) => {
-          if (child.isMesh) {
-            child.material.color.set(child.userData.originalColor);
-          }
-        });
-
-        // Change color on hover
-        if (intersects.length > 0) {
-          intersects[0].object.material.color.set(HOVER_COLOR);
-        }
-      }
-
-      window.addEventListener('mousemove', onMouseMove, false);
-
-      // Add click event listener
-      window.addEventListener('click', (event) => {
-        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-
-        raycaster.setFromCamera(mouse, camera);
-        const intersects = raycaster.intersectObjects(fbxScene.children);
-
-        if (intersects.length > 0) {
-          // Open URL in a small popup window
-          window.open('/settings', 'popupWindow', 'width=950,height=908,scrollbars=yes,resizable=yes'); // Adjust width and height as needed
-        }
-      });
-    }, undefined, (error) => {
-      console.error('Error loading gears model:', error);
-    });
-  }
+function showToast(text, kind = 'info', duration = 5000) {
+  const toasts = document.getElementById('toasts');
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.dataset.kind = kind;
+  toast.textContent = text;
+  toasts.append(toast);
+  setTimeout(() => {
+    toast.classList.add('is-leaving');
+    setTimeout(() => toast.remove(), 350);
+  }, duration);
 }
 
-// Call loadGearsIfEnabled in the initializeApp function
 async function initializeApp() {
   await fetchSettings();
   const settings = currentSettings;
@@ -280,8 +231,7 @@ async function initializeApp() {
   // Set up an interval to check for settings changes
   setInterval(checkSettingsChanges, 500); // Check every .5 seconds
 
-  // Load gears if enabled
-  await loadGearsIfEnabled();
+  applyOverlaySettings(settings);
 
   // Load the default VRM model
   loadVRM(defaultModelUrl, settings.characterName || 'Character');
@@ -319,7 +269,9 @@ async function loadVRM(modelUrl, modelName) {
                 VRMUtils.deepDispose(currentVrm.scene);
             }
 
+            characterExpressions.bind(vrm.expressionManager);
             currentVrm = vrm;
+            customAssistant?.resetExpressions?.();
             //currentVrm.renderOrder = 10;
             scene.add(vrm.scene);
 
@@ -335,6 +287,7 @@ async function loadVRM(modelUrl, modelName) {
             // Use the provided modelName instead of extracting from URL
             currentVrmName = modelName || 'Unknown';
             updateVrmNameDisplay();
+            if (!assistantActive) updateTextMesh(`Press Start to talk to ${currentVrmName}.`);
 
             // Get the current idle animation from settings
             const idleAnimationUrl = await getCurrentIdleAnimation();
@@ -539,6 +492,7 @@ const roundedRectMaterial = new THREE.MeshBasicMaterial({
 });
 const roundedRect = new THREE.Mesh(roundedRectGeometry, roundedRectMaterial);
 roundedRect.position.set(0, -0.45, -2.5);
+roundedRect.visible = false; // the HTML caption card is used outside XR
 uiRoot.add(roundedRect);
 
 // Replace the loadFont function with this:
@@ -557,6 +511,11 @@ function loadFont(fontFamily, fontPath) {
 // Update the updateVrmNameDisplay function
 function updateVrmNameDisplay(speaker = currentSpeaker) {
   currentSpeaker = speaker;
+  const chip = document.getElementById('captionSpeaker');
+  chip.dataset.speaker = speaker;
+  chip.textContent = speaker === 'User' ? 'You' : currentVrmName;
+  if (!xrPresenting) return;
+
   loadFont('Mali', 'fonts/Mali-Medium.ttf').then(() => {
     if (vrmNameMesh) {
       uiRoot.remove(vrmNameMesh);
@@ -657,13 +616,6 @@ function updateBlink(deltaTime) {
     }
 }
 
-// Add these constants for easy adjustment
-const GEARS_SCALE = 0.00045;
-const GEARS_Y_OFFSET = 0.83;
-const GEARS_Z_OFFSET = 0.05;
-const GEARS_COLOR = 0x4b9560;
-const HOVER_COLOR = 0x1d3c34; // New hover color
-
 // Modify the animate function
 function animate() {
   requestAnimationFrame(animate);
@@ -679,6 +631,7 @@ function animate() {
     if (customAssistant) {
       currentVrm.expressionManager.setValue('aa', customAssistant.mouthLevel());
     }
+    characterExpressions.update(deltaTime);
     currentVrm.update(deltaTime);
   }
 
@@ -792,20 +745,25 @@ async function initializeVapi() {
     console.log('Vapi call started');
     currentMessage = '';
     updateTextMesh('Call started...');
+    setAssistantStatus('Listening…');
   });
 
   vapi.on('call-end', () => {
     console.log('Vapi call ended');
     updateTextMesh(currentMessage + '\n\nCall ended.');
+    setAssistantStatus('');
+    setAssistantButton(false);
   });
 
   vapi.on('speech-start', () => {
     console.log('Vapi started speaking');
     currentMessage = ''; // Remove the 'Assistant: ' prefix
+    setAssistantStatus('Speaking…');
   });
 
   vapi.on('speech-end', () => {
     console.log('Vapi stopped speaking');
+    setAssistantStatus('Listening…');
   });
 
   vapi.on('message', (message) => {
@@ -831,7 +789,7 @@ async function initializeVapi() {
 
   vapi.on('error', (error) => {
     console.error('Vapi error:', error);
-    updateTextMesh('Error: ' + error.message);
+    reportAssistantError(error);
   });
 }
 
@@ -873,16 +831,11 @@ window.addEventListener('load', async () => {
   });
 
   const socket = new WebSocket('ws://' + location.host);
-  const clipboardAlert = document.getElementById('clipboardAlert');
 
   socket.onmessage = function(event) {
     const data = JSON.parse(event.data);
     if (data.type === 'clipboard') {
-      clipboardAlert.textContent = '📋 Clipboard Updated: ';
-      clipboardAlert.style.display = 'block';
-      setTimeout(() => {
-        clipboardAlert.style.display = 'none';
-      }, 5000);
+      showToast('Clipboard shared with the assistant');
 
       // Let the assistant see the clipboard as a system message
       const systemMessage = `User's clipboard updated: ${data.content}`;
@@ -896,43 +849,62 @@ window.addEventListener('load', async () => {
 });
 
 async function toggleAssistant() {
-  const toggleButton = document.getElementById('toggleVapi');
-
   if (assistantActive) {
     if (assistantProvider === 'vapi') {
       stopVapi();
     } else {
       stopCustomAssistant();
     }
-    toggleButton.textContent = '▶️';
-    assistantActive = false;
+    setAssistantButton(false);
     return;
   }
 
-  toggleButton.textContent = '🛑';
-  assistantActive = true;
+  setAssistantButton(true);
   if (assistantProvider === 'vapi') {
     startVapi();
   } else {
     const session = ++assistantSession;
+    setAssistantStatus('Connecting…');
     try {
       await startCustomAssistant(session);
     } catch (error) {
       if (session !== assistantSession) return;
       console.error('Assistant failed to start:', error);
       stopCustomAssistant();
-      updateTextMesh('Error: ' + error.message);
-      setAssistantStatus('Error');
-      toggleButton.textContent = '▶️';
-      assistantActive = false;
+      reportAssistantError(error);
+      setAssistantButton(false);
     }
   }
 }
 
-// Custom pipeline or Codex/ChatGPT voice adapter
+// Start/Stop button and status pill in the dock
+function setAssistantButton(active) {
+  assistantActive = active;
+  document.getElementById('toggleVapi').dataset.active = String(active);
+  document.getElementById('captionText').classList.toggle('is-idle', !active);
+}
+
+function statusKind(status) {
+  const text = status.toLowerCase();
+  if (text.includes('error')) return 'error';
+  if (text.includes('listen')) return 'listening';
+  if (text.includes('speak')) return 'speaking';
+  if (text.includes('think')) return 'thinking';
+  if (text.includes('connect')) return 'connecting';
+  return 'other';
+}
+
 function setAssistantStatus(status) {
   const el = document.getElementById('assistantStatus');
-  if (el) el.textContent = status || '';
+  if (!el) return;
+  el.textContent = status || '';
+  el.dataset.kind = status ? statusKind(status) : '';
+}
+
+function reportAssistantError(error) {
+  updateTextMesh('Error: ' + error.message);
+  setAssistantStatus('Error');
+  showToast(error.message, 'error', 8000);
 }
 
 async function startCustomAssistant(session) {
@@ -943,20 +915,19 @@ async function startCustomAssistant(session) {
     onText: updateTextMesh,
     onSpeaker: updateVrmNameDisplay,
     onStatus: setAssistantStatus,
+    getExpressions: () => characterExpressions.supported(),
+    onExpression: command => characterExpressions.apply(command),
+    onExpressionReset: () => characterExpressions.reset(),
+    onExpressionStatus: text => { document.getElementById('expressionStatus').textContent = text; },
     onError: (error) => {
       console.error('[assistant]', error);
-      updateTextMesh('Error: ' + error.message);
-      setAssistantStatus('Error');
+      reportAssistantError(error);
     },
     onEnd: (error) => {
       if (session !== assistantSession) return;
       stopCustomAssistant();
-      assistantActive = false;
-      document.getElementById('toggleVapi').textContent = '▶️';
-      if (error) {
-        updateTextMesh('Error: ' + error.message);
-        setAssistantStatus('Error');
-      }
+      setAssistantButton(false);
+      if (error) reportAssistantError(error);
     },
   });
   updateVrmNameDisplay('Character');
@@ -997,6 +968,12 @@ let currentMessage = '';
 const topMargin = 70; // Customize this value to adjust the top margin
 
 function updateTextMesh(message) {
+  captionText = message;
+  const caption = document.getElementById('captionText');
+  caption.textContent = message;
+  caption.scrollTop = caption.scrollHeight;
+  if (!xrPresenting) return;
+
   loadFont('Mali', 'fonts/Mali-Medium.ttf').then(() => {
     const canvas = document.createElement('canvas');
     const context = canvas.getContext('2d');
@@ -1074,13 +1051,26 @@ config.depthiness = 0.8
 config.fovy = (40 * Math.PI) / 180
 new LookingGlassWebXRPolyfill()
 
-// Add Start Session Button
-document.body.append(VRButton.createButton(renderer));
+// The Looking Glass polyfill only notices the button when it is appended directly to <body>,
+// so it is added there first and then moved into the dock next to Start/Stop.
+const xrButton = VRButton.createButton(renderer);
+document.body.append(xrButton);
+document.getElementById('dock').append(xrButton);
 
 function StartXRSession() {
     // Reposition UI for clear viewing in Looking Glass
     uiRoot.position.x = 0.8
     uiRoot.position.z = 0.5
+
+    // The star field is a desktop backdrop; inside the hologram it would sit offset behind the character
+    sparklesGroup.visible = false;
+
+    // Hand the caption over to the 3D box, which is visible inside the hologram
+    xrPresenting = true;
+    document.body.classList.add('xr-presenting');
+    roundedRect.visible = true;
+    updateVrmNameDisplay();
+    updateTextMesh(captionText);
 }
 
 function EndXRSession() {
@@ -1092,4 +1082,4 @@ function EndXRSession() {
 renderer.xr.addEventListener('sessionstart', StartXRSession)
 renderer.xr.addEventListener("sessionend", EndXRSession)
 
-updateTextMesh('Waiting for call to start...');
+updateTextMesh('Press Start to begin.');

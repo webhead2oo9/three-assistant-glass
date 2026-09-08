@@ -1,0 +1,312 @@
+/* Character screen: HTML overlay on top of the three.js canvas. */
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background: var(--cream);
+}
+
+canvas {
+  display: block;
+  width: 100vw !important;
+  height: 100vh !important;
+}
+
+/* ---- Layout slots --------------------------------------------------------- */
+
+.hud {
+  position: fixed;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: none;
+}
+.hud > * { pointer-events: auto; }
+
+.hud-top-left { top: 16px; left: 16px; }
+.hud-top-right { top: 16px; right: 16px; }
+
+/* ---- Pills and buttons ---------------------------------------------------- */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(29, 60, 52, 0.14);
+  background: rgba(251, 251, 247, 0.92);
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 500;
+  box-shadow: var(--shadow-s);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  white-space: nowrap;
+}
+
+.icon-button {
+  width: 40px;
+  padding: 0;
+  justify-content: center;
+  transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+}
+.icon-button .icon { width: 20px; height: 20px; }
+.icon-button:hover {
+  background: var(--leaf);
+  color: var(--paper);
+  transform: rotate(20deg);
+}
+
+#clock {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+/* Animation picker (debug feature, toggled from Settings) */
+#animationSelect {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 34px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%231d3c34' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 16px;
+  cursor: pointer;
+}
+
+/* ---- Caption card --------------------------------------------------------- */
+
+#captionCard {
+  position: fixed;
+  left: 50%;
+  bottom: 92px;
+  z-index: 100;
+  width: min(600px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  padding: 22px 24px 20px;
+  border-radius: var(--radius-l);
+  background: var(--ink);
+  color: var(--cream);
+  box-shadow: var(--shadow-m);
+}
+
+#captionSpeaker {
+  position: absolute;
+  top: 0;
+  left: 20px;
+  transform: translateY(-55%);
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  background: var(--leaf);
+  color: var(--paper);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  box-shadow: var(--shadow-s);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+#captionSpeaker[data-speaker="User"] {
+  background: var(--cream);
+  color: var(--ink);
+}
+
+#captionText {
+  margin: 0;
+  min-height: calc(1.45em * 3);
+  max-height: calc(1.45em * 7);
+  overflow-y: auto;
+  font-size: 19px;
+  font-weight: 500;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(239, 234, 215, 0.35) transparent;
+}
+#captionText.is-idle { color: rgba(239, 234, 215, 0.7); }
+
+/* ---- Dock ----------------------------------------------------------------- */
+
+#dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 20px;
+  z-index: 101;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  border-radius: var(--radius-pill);
+  border: 1px solid rgba(29, 60, 52, 0.14);
+  background: rgba(251, 251, 247, 0.92);
+  box-shadow: var(--shadow-m);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.primary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 20px 0 16px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: var(--leaf);
+  color: var(--paper);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: background-color 0.15s ease, transform 0.1s ease;
+}
+.primary-button:hover { background: var(--leaf-strong); }
+.primary-button:active { transform: scale(0.97); }
+.primary-button svg { width: 18px; height: 18px; }
+.primary-button .when-active { display: none; }
+.primary-button[data-active="true"] { background: var(--rose); }
+.primary-button[data-active="true"]:hover { background: #983526; }
+.primary-button[data-active="true"] .when-idle { display: none; }
+.primary-button[data-active="true"] .when-active { display: inline; }
+
+#assistantStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 16px 0 12px;
+  border-radius: var(--radius-pill);
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+#assistantStatus:empty { display: none; }
+#assistantStatus::before {
+  content: "";
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--sand);
+  flex: none;
+}
+#assistantStatus[data-kind="listening"]::before {
+  background: var(--leaf);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+#assistantStatus[data-kind="speaking"]::before {
+  background: var(--sky);
+  animation: pulse 0.9s ease-in-out infinite;
+}
+#assistantStatus[data-kind="thinking"]::before,
+#assistantStatus[data-kind="connecting"]::before {
+  background: var(--amber);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+#assistantStatus[data-kind="error"] { color: var(--rose); }
+#assistantStatus[data-kind="error"]::before { background: var(--rose); }
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.35); opacity: 0.55; }
+}
+
+#expressionStatus {
+  padding: 0 12px 0 4px;
+  color: var(--muted);
+  font-size: 13px;
+  white-space: nowrap;
+}
+#expressionStatus:empty { display: none; }
+
+/* The Looking Glass button is created by three.js with inline styles. */
+#dock #VRButton {
+  position: static !important;
+  bottom: auto !important;
+  left: auto !important;
+  width: auto !important;
+  height: 44px;
+  padding: 0 16px !important;
+  border: 1px solid rgba(29, 60, 52, 0.25) !important;
+  border-radius: var(--radius-pill) !important;
+  background: transparent !important;
+  color: var(--ink) !important;
+  font: 600 12px/1 var(--font) !important;
+  letter-spacing: 0.06em;
+  text-align: center !important;
+  white-space: nowrap;
+  opacity: 1 !important;
+  z-index: auto !important;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+#dock #VRButton:hover {
+  background: var(--sand-2) !important;
+}
+
+/* ---- Toasts --------------------------------------------------------------- */
+
+#toasts {
+  position: fixed;
+  top: 16px;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.toast {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: var(--radius-pill);
+  background: var(--pine);
+  color: var(--cream);
+  font-size: 15px;
+  font-weight: 500;
+  box-shadow: var(--shadow-m);
+  animation: toast-in 0.25s ease;
+}
+.toast[data-kind="error"] { background: var(--rose); }
+.toast.is-leaving { opacity: 0; transition: opacity 0.3s ease; }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ---- Looking Glass session: the 3D caption takes over ---------------------- */
+
+body.xr-presenting #captionCard { display: none; }
+
+@media (max-width: 640px) {
+  #captionCard { bottom: 96px; padding: 20px 18px 16px; }
+  #captionText { font-size: 17px; }
+  #expressionStatus { display: none; }
+}
+
+@media (max-height: 700px) {
+  #captionText {
+    min-height: calc(1.45em * 2);
+    max-height: calc(1.45em * 4);
+  }
+}

@@ -1,0 +1,107 @@
+/* Shared design tokens, font faces and base controls for every page. */
+
+@font-face {
+  font-family: 'Mali';
+  src: url('fonts/Mali-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Mali';
+  src: url('fonts/Mali-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Mali';
+  src: url('fonts/Mali-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Mali';
+  src: url('fonts/Mali-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --cream: #efead7;
+  --paper: #fbfbf7;
+  --paper-2: #f4f1e6;
+  --sand: #d7d3c2;
+  --sand-2: #e7e3d4;
+  --ink: #1d3c34;
+  --pine: #1c532b;
+  --leaf: #4b9560;
+  --leaf-strong: #3b7f4d;
+  --leaf-soft: #dcebdf;
+  --muted: #5f6f66;
+  --sky: #71c5e8;
+  --amber: #d9a441;
+  --rose: #b3402f;
+  --rose-soft: #f6e3df;
+
+  --font: 'Mali', 'Segoe UI', system-ui, sans-serif;
+  --radius-s: 8px;
+  --radius-m: 14px;
+  --radius-l: 22px;
+  --radius-pill: 999px;
+  --shadow-s: 0 1px 2px rgba(29, 60, 52, 0.08), 0 2px 8px rgba(29, 60, 52, 0.06);
+  --shadow-m: 0 6px 24px rgba(29, 60, 52, 0.14);
+  --focus: 0 0 0 3px rgba(75, 149, 96, 0.35);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  color: var(--ink);
+  background: var(--cream);
+  -webkit-font-smoothing: antialiased;
+}
+
+button, input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+}
+
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+a { color: var(--leaf-strong); }
+
+/* Monochrome icon drawn from an SVG file, colored with currentColor. */
+.icon {
+  display: inline-block;
+  width: 1.25em;
+  height: 1.25em;
+  flex: none;
+  background-color: currentColor;
+  -webkit-mask: var(--icon) center / contain no-repeat;
+  mask: var(--icon) center / contain no-repeat;
+  vertical-align: -0.28em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}

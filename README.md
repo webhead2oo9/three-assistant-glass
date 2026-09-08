@@ -79,7 +79,7 @@ Customizable 3D conversational AI character
 
 7. Pick a character model and voice assistant ([Create an assistant on Vapi](https://dashboard.vapi.ai/assistants) first if you haven't already)
 
-8. Go back to http://localhost:3000/settings and click ▶️ to start the assistant
+8. Go back to http://localhost:3000 and press **Start** to begin the assistant
 
 ## Use a Custom Assistant (xAI, OpenAI or local)
 
@@ -91,7 +91,7 @@ Instead of Vapi you can wire the character to your own model and voices. Everyth
    - **OpenAI** — any OpenAI-compatible endpoint: OpenAI itself, Groq, or a local server such as [speaches](https://github.com/speaches-ai/speaches) for Whisper + Kokoro
    - **Ollama / LM Studio** — local model, with the browser doing speech-to-text (Chrome) and Kokoro doing text-to-speech in the browser. No keys, no cloud.
 3. Speech-to-text and text-to-speech default to the language model's URL and key; override them to mix providers (e.g. Ollama for chat, xAI for voice)
-4. Press ▶️ and allow microphone access. Toggle *barge-in* off if the character keeps interrupting itself on a loud speaker setup.
+4. Press **Start** and allow microphone access. Toggle *barge-in* off if the character keeps interrupting itself on a loud speaker setup.
 
 | Provider | Speech-to-text | Text-to-speech | Notes |
 |---|---|---|---|
@@ -115,14 +115,14 @@ at `555b82afa9`. Voice access remains experimental and must be verified with you
 3. In **Settings → Assistant**, select **ChatGPT via Codex (experimental)**.
 4. Click **Sign in with ChatGPT** and complete the browser sign-in. If the popup is
    blocked, use **Continue sign-in**. The account status updates automatically.
-5. Optionally set **Character instructions**, return to the character, press Play,
+5. Optionally set **Character instructions**, return to the character, press **Start**,
    and allow microphone access.
 
 The **Voice** selector offers Cove (default), Juniper, Maple, Spruce, Ember, Vale,
 Breeze, Arbor, and Sol. **Realtime model override** is optional; leave it blank for
 the Codex default (`gpt-live-1-codex` with protocol v3 in CLI 0.153.4). Overrides
 must name a compatible realtime model available to your account. Model and voice
-changes apply to the next session, after stopping and pressing Play again.
+changes apply to the next session, after stopping and pressing **Start** again.
 
 ChatGPT can delegate work to the backing Codex agent while voice stays connected.
 In Settings, optionally set **Task workspace** to an existing absolute folder path
@@ -200,7 +200,7 @@ switch to an API-key provider. References: [Codex authentication](https://learn.
 
 5. Double click the window on the Looking Glass Display or press `f11` to enter full-screen
 
-6. Press the `▶️` button on your looking glass display or computer to start the assistant (Configurable in Settings)
+6. Press **Start** on your computer to begin the assistant (the keyboard shortcut is configurable in Settings)
 
 ## FAQ
 

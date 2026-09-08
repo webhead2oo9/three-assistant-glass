@@ -1,111 +1,49 @@
 <!DOCTYPE html>
-
-<html>
+<html lang="en">
 	<head>
 		<meta charset="utf-8" />
 		<title>three-assistant-glass</title>
-		<link rel="stylesheet" href="assistant/codex-tasks.css" />
 		<meta
 			name="viewport"
 			content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no"
 		/>
-		<style>
-			@font-face {
-				font-family: 'Mali';
-				src: url('fonts/Mali-Regular.ttf') format('truetype');
-				font-weight: normal;
-				font-style: normal;
-			}
-			@font-face {
-				font-family: 'Mali';
-				src: url('fonts/Mali-Medium.ttf') format('truetype');
-				font-weight: 500;
-				font-style: normal;
-			}
-			body {
-				margin: 0;
-				padding: 0;
-				overflow: hidden; /* Hide scrollbars */
-				display: flex;
-				justify-content: center;
-				align-items: center;
-				height: 100vh;
-				background-color: #efead7;
-				font-family: 'Mali', sans-serif;
-			}
-
-			canvas {
-				display: block;
-				width: 100vw !important;
-				height: 100vh !important;
-			}
-
-			#animationSelect {
-				position: absolute;
-				top: 10px;
-				left: 10px;
-				z-index: 100;
-				background-color: rgba(255, 255, 255, 0.7);
-				padding: 5px;
-				border-radius: 5px;
-				font-family: 'Mali', cursive;
-			}
-
-			#vapiControls {
-				position: absolute;
-				bottom: 10px;
-				left: 10px;
-				z-index: 100;
-			}
-
-			#vapiControls button {
-				margin-right: 10px;
-				padding: 5px 10px;
-				border-radius: 5px;
-				border: none;
-				background-color: #1c532b;
-				color: #efead7;
-				cursor: pointer;
-				font-family: 'Mali', cursive;
-			}
-
-			#assistantStatus {
-				color: #1c532b;
-				font-size: 14px;
-				vertical-align: middle;
-			}
-
-			#clipboardAlert {
-				position: fixed;
-				top: 20px;
-				right: 20px;
-				background-color: rgba(28, 83, 43, 0.9);
-				color: #efead7;
-				padding: 10px;
-				border-radius: 5px;
-				display: none;
-				z-index: 1000;
-				font-family: 'Mali', cursive;
-			}
-
-			* {
-				font-family: 'Mali', sans-serif;
-			}
-		</style>
+		<link rel="stylesheet" href="theme.css" />
+		<link rel="stylesheet" href="app.css" />
+		<link rel="stylesheet" href="assistant/codex-tasks.css" />
 		<script src="https://cdn.jsdelivr.net/gh/balacodeio/Vapi-Web-UMD@latest/dist/latest/vapi-web-bundle.min.js"></script>
 	</head>
 
 	<body>
-		<select id="animationSelect">
-			<option value="">Test an animation</option>
-		</select>
-
-		<div id="vapiControls">
-			<button id="toggleVapi">▶️</button>
-			<span id="assistantStatus"></span>
+		<div class="hud hud-top-left">
+			<select id="animationSelect" class="pill" aria-label="Test an animation" style="display: none">
+				<option value="">Test an animation</option>
+			</select>
 		</div>
 
-		<div id="clipboardAlert"></div>
+		<div class="hud hud-top-right">
+			<span id="clock" class="pill" aria-live="off" hidden></span>
+			<button id="settingsButton" class="pill icon-button" type="button" title="Settings" aria-label="Open settings" hidden>
+				<span class="icon" style="--icon: url('icons/settings.svg')"></span>
+			</button>
+		</div>
+
+		<section id="captionCard" aria-label="Conversation">
+			<span id="captionSpeaker" data-speaker="Character">Character</span>
+			<p id="captionText" class="is-idle" aria-live="polite">Loading…</p>
+		</section>
+
+		<div id="dock">
+			<button id="toggleVapi" class="primary-button" type="button" data-active="false">
+				<svg class="when-idle" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+				<svg class="when-active" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect width="16" height="16" x="4" y="4" rx="3"/></svg>
+				<span class="when-idle">Start</span>
+				<span class="when-active">Stop</span>
+			</button>
+			<span id="assistantStatus" role="status" aria-live="polite"></span>
+			<span id="expressionStatus" role="status"></span>
+		</div>
+
+		<div id="toasts" aria-live="polite"></div>
 
 		<script type="importmap">
 			{
@@ -120,20 +58,5 @@
 		</script>
 
 		<script src="main.js" type="module"></script>
-		<script>
-			const socket = new WebSocket('ws://' + location.host);
-			const clipboardAlert = document.getElementById('clipboardAlert');
-
-			socket.onmessage = function(event) {
-				const data = JSON.parse(event.data);
-				if (data.type === 'clipboard') {
-					clipboardAlert.textContent = '📋 Clipboard Updated';
-					clipboardAlert.style.display = 'block';
-					setTimeout(() => {
-						clipboardAlert.style.display = 'none';
-					}, 5000);
-				}
-			};
-		</script>
 	</body>
 </html>

@@ -61,6 +61,8 @@ async function loadCharacters() {
     characters.forEach(character => {
         const card = document.createElement('div');
         card.className = 'character-card';
+        card.dataset.name = character.name;
+        card.title = `Use ${character.name}`;
         card.innerHTML = `
             <img src="${character.imagePath}" alt="${character.name}">
             <span class="character-name">${character.name}</span>
@@ -72,9 +74,18 @@ async function loadCharacters() {
     // Add the "Add Character" card
     const addCard = document.createElement('div');
     addCard.className = 'character-card add-character';
+    addCard.title = 'Add a character';
     addCard.innerHTML = '<img src="images/Add_Character_Card.png" alt="Add Character Card">';
     addCard.addEventListener('click', () => document.getElementById('characterUpload').click());
     grid.appendChild(addCard);
+
+    markSelectedCharacter(document.getElementById('characterName').textContent);
+}
+
+function markSelectedCharacter(name) {
+    document.querySelectorAll('#characterGrid .character-card').forEach(card => {
+        card.classList.toggle('selected', card.dataset.name === name);
+    });
 }
 
 // Function to select a character
@@ -91,8 +102,10 @@ async function selectCharacter(name) {
         if (!response.ok) {
             throw new Error('Failed to save character name');
         }
-        
+
         document.getElementById('characterName').textContent = name;
+        markSelectedCharacter(name);
+        flashSaved();
     } catch (error) {
         console.error('Error selecting character:', error);
         alert('Failed to select character. Please try again.');
@@ -135,13 +148,20 @@ async function loadSettings() {
 
 // Function to save settings
 async function saveSettings(key, value) {
-    await fetch('/api/settings', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ [key]: value }),
-    });
+    try {
+        const response = await fetch('/api/settings', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ [key]: value }),
+        });
+        if (!response.ok) throw new Error('Settings could not be saved.');
+        flashSaved();
+    } catch (error) {
+        console.error('Error saving settings:', error);
+        flashSaved(error.message, 'error');
+    }
 }
 
 // Function to load assistants from Vapi
@@ -336,7 +356,7 @@ const ASSISTANT_TEXT_FIELDS = [
     'codexInstructions', 'codexModel', 'codexWorkspace', 'codexTaskModel',
 ];
 const ASSISTANT_SELECTS = ['assistantProvider', 'sttProvider', 'ttsProvider', 'codexVoice'];
-const ASSISTANT_TOGGLES = ['bargeIn'];
+const ASSISTANT_TOGGLES = ['bargeIn', 'codexAutoExpressions'];
 
 const ASSISTANT_PRESETS = {
     xai:      { llmBaseUrl: 'https://api.x.ai/v1', llmModel: 'grok-4.6', sttProvider: 'xai', ttsProvider: 'xai', ttsVoice: 'eve', sttBaseUrl: '', ttsBaseUrl: '' },
@@ -361,17 +381,19 @@ async function saveSettingsBatch(values) {
         if (!response.ok) throw new Error((await response.json()).error || 'Settings could not be saved.');
         flashSaved();
     } catch (error) {
-        clearTimeout(savedTimer);
-        document.getElementById('assistantSaveStatus').textContent = error.message;
+        flashSaved(error.message, 'error');
     }
 }
 
+// Shared "Saved" chip in the page header; errors stay visible longer.
 let savedTimer;
-function flashSaved() {
+function flashSaved(message = 'Saved', kind = 'ok') {
     const status = document.getElementById('assistantSaveStatus');
+    status.textContent = message;
+    status.dataset.kind = kind;
     status.classList.add('visible');
     clearTimeout(savedTimer);
-    savedTimer = setTimeout(() => status.classList.remove('visible'), 1200);
+    savedTimer = setTimeout(() => status.classList.remove('visible'), kind === 'ok' ? 1200 : 5000);
 }
 
 function setHidden(selector, hidden) {
@@ -429,6 +451,7 @@ async function initAssistantTab() {
     document.getElementById('ttsProvider').value = settings.ttsProvider || 'xai';
     document.getElementById('codexVoice').value = settings.codexVoice || '';
     document.getElementById('bargeIn').checked = settings.bargeIn !== false;
+    document.getElementById('codexAutoExpressions').checked = settings.codexAutoExpressions === true;
     updateAssistantUI();
 
     ASSISTANT_TEXT_FIELDS.forEach(id => {

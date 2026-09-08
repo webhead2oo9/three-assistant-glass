@@ -11,7 +11,7 @@ function deferred() {
 
 async function harness({ permission, allocation, answer = true, answerSdp = 'v=0\r\nserver-answer', gathering = false } = {}) {
   const requests = [], sources = [], peers = [], audios = [], contexts = [], ends = [], statuses = [], texts = [], speakers = [];
-  const listeners = new Map(), taskHandlers = [];
+  const listeners = new Map(), taskHandlers = [], expressionInputs = [];
   const micTrack = { stopped: false, stop() { this.stopped = true; } };
   const mic = { getTracks: () => [micTrack], getAudioTracks: () => [micTrack] };
   let sessionCounter = 0;
@@ -71,6 +71,9 @@ async function harness({ permission, allocation, answer = true, answerSdp = 'v=0
       audios.push(audio); return audio;
     } },
   }, { 'assistant/codex-api.js': { codexRequest: api },
+    'assistant/automatic-expressions.js': { createAutomaticExpressions: () => ({
+      setEnabled() {}, stop() {}, reset() {}, transcript: (text, newTurn) => expressionInputs.push({ text, newTurn }),
+    }) },
     'assistant/codex-tasks.js': { createCodexTaskHandler: id => {
       const handler = { id, messages: [], handle(message) {
         if (!message.type.startsWith('codex/task/')) return false;
@@ -83,7 +86,7 @@ async function harness({ permission, allocation, answer = true, answerSdp = 'v=0
     onStatus: text => statuses.push(text), onText: text => texts.push(text),
     onSpeaker: speaker => speakers.push(speaker), onEnd: error => ends.push(error), onError() {},
   });
-  return { assistant, requests, sources, peers, audios, contexts, ends, statuses, texts, speakers, mic, micTrack, listeners, taskHandlers };
+  return { assistant, requests, sources, peers, audios, contexts, ends, statuses, texts, speakers, mic, micTrack, listeners, taskHandlers, expressionInputs };
 }
 
 test('browser negotiates WebRTC, plays remote audio, displays transcripts and animates speech', async () => {
@@ -260,5 +263,19 @@ test('page exit stops the server session and old callbacks cannot stop a restart
   oldSource.onerror();
   assert.equal(h.peers[1].closed, undefined);
   assert.deepEqual(h.ends, []);
+  h.assistant.stop();
+});
+
+
+test('automatic expressions receive assistant transcripts only, without delegating a task', async () => {
+  const h = await harness(); await h.assistant.start();
+  const count = h.requests.length;
+  h.sources[0].emit('thread/realtime/transcript/done', { role: 'user', text: 'I am really angry.' });
+  h.sources[0].emit('codex/task/output', { itemId: 'task', text: 'Sad text in a search result.' });
+  assert.equal(h.expressionInputs.length, 0);
+  h.sources[0].emit('thread/realtime/transcript/delta', { role: 'assistant', delta: 'That is wonderful news!' });
+  assert.equal(h.expressionInputs.length, 1);
+  assert.equal(h.expressionInputs[0].newTurn, true);
+  assert.equal(h.requests.length, count);
   h.assistant.stop();
 });
