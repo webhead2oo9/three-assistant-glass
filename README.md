@@ -18,6 +18,12 @@ Customizable 3D conversational AI character
 - Function Calling
 - Audio Recording
 
+### Voice Assistant - xAI realtime (Grok Voice)
+
+- Speech-to-speech over one WebSocket: fastest replies, natural interruptions, expressive voice
+- Hangs up while nobody is talking and resumes the conversation on the next sound, so you only pay for conversation
+- Same tools and prompt placeholders as the custom assistant
+
 ### Voice Assistant - Custom (xAI, OpenAI-compatible or fully local)
 
 - Bring your own key: [xAI](https://console.x.ai/) (Grok + xAI speech), [OpenAI](https://platform.openai.com/), or any OpenAI-compatible server
@@ -104,7 +110,18 @@ The system prompt can use `{{date}}`, `{{hour}}` and `{{timezone}}`; they're fil
 | Browser | Chrome Web Speech | OS voices | Zero setup; Chrome sends audio to Google |
 | Kokoro | — | In-browser Kokoro-82M | Free and offline after a one-time ~90–330 MB download |
 
-Coming next: xAI's realtime speech-to-speech (`grok-voice`) as a third provider alongside Vapi and Custom.
+## xAI realtime voice (Grok Voice)
+
+The fastest option: one WebSocket carries your voice to xAI and the character's voice back, so replies begin almost as soon as you stop talking. xAI handles turn-taking and interruptions on its side, and the voice carries the model's tone instead of being read out by a separate synthesizer.
+
+1. Open Settings → **Assistant** and switch *Voice assistant* to **xAI realtime**
+2. Paste an xAI key, or leave the field blank if the Custom assistant's key is already an xAI key
+3. Pick a voice (`eve`, `ara`, `rex`, …), write the character's instructions, and press **Start**
+
+Realtime is billed per connected minute (about $0.08 at the time of writing, versus fractions of a cent per turn on the Custom pipeline). To keep the cost tied to actual conversation, the session hangs up the upstream socket after **Hang up after** seconds of silence (default 90) while the microphone stays on; the next sound reconnects and resumes the same conversation, which xAI keeps for about 30 minutes. Set it to 0 to stay connected until you press Stop.
+
+Tools (`get_time`, `open_url`), the `{{date}}`-style placeholders and the local server proxy work the same way as for the Custom assistant. The character's expressions can follow the reply text with *Automatic expressions*.
+
 
 ## ChatGPT voice through Codex (experimental)
 

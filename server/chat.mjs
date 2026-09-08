@@ -78,7 +78,7 @@ function looksLikeToolRejection(status) {
   return status === 400 || status === 404 || status === 422;
 }
 
-function parseArguments(text) {
+export function parseArguments(text) {
   if (!text || !text.trim()) return { value: {} };
   try {
     const value = JSON.parse(text);

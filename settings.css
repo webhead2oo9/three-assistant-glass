@@ -198,6 +198,7 @@ body {
 
 input[type="text"],
 input[type="password"],
+input[type="number"],
 input:not([type]),
 select,
 textarea {

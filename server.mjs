@@ -15,6 +15,7 @@ import { createCodexRouter, localCodexRequest } from './server/codex-routes.mjs'
 import { createChatRunner, UpstreamError } from './server/chat.mjs';
 import { createTools } from './server/tools.mjs';
 import { renderSystemMessages } from './server/prompt.mjs';
+import { createRealtimeBridge, realtimeConfig } from './server/realtime.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -130,6 +131,8 @@ app.post('/api/settings', express.json(), (req, res, next) => {
       // Custom assistant (Settings → Assistant)
       'assistantProvider', 'assistantLanguage', 'bargeIn',
       'llmBaseUrl', 'llmApiKey', 'llmModel', 'llmSystemPrompt', 'llmFirstMessage', 'llmStream', 'llmTools',
+      'realtimeApiKey', 'realtimeModel', 'realtimeVoice', 'realtimeInstructions', 'realtimeFirstMessage',
+      'realtimeIdleSeconds', 'realtimeTools', 'realtimeAutoExpressions',
       'sttProvider', 'sttBaseUrl', 'sttApiKey', 'sttModel',
       'ttsProvider', 'ttsBaseUrl', 'ttsApiKey', 'ttsModel', 'ttsVoice', 'ttsSpeed',
       'codexInstructions', 'codexModel', 'codexVoice', 'codexWorkspace', 'codexTaskModel', 'codexAutoExpressions',
@@ -389,7 +392,22 @@ app.get('/api/assistant/voices', async (req, res) => {
 });
 
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+
+// Two WebSocket endpoints share the HTTP server: the page's notification
+// socket (clipboard etc.) on any path, and the realtime voice bridge on its own.
+const wss = new WebSocketServer({ noServer: true });
+const realtimeWss = new WebSocketServer({ noServer: true });
+const realtimeBridge = createRealtimeBridge({
+  config: () => realtimeConfig(settings),
+  tools: assistantTools, // the realtimeTools setting decides whether definitions are sent
+  WebSocketImpl: WebSocket,
+});
+
+server.on('upgrade', (req, socket, head) => {
+  const { pathname } = new URL(req.url, 'http://localhost');
+  const target = pathname === '/api/assistant/realtime' ? realtimeWss : wss;
+  target.handleUpgrade(req, socket, head, (ws) => target.emit('connection', ws, req));
+});
 
 wss.on('connection', (ws) => {
   console.log('Client connected');
@@ -398,6 +416,8 @@ wss.on('connection', (ws) => {
     console.log('Client disconnected');
   });
 });
+
+realtimeWss.on('connection', (ws, req) => realtimeBridge.connect(ws, req));
 
 let lastClipboardContent = '';
 
@@ -424,7 +444,9 @@ function shutdown() {
   codexClient.close();
   clearInterval(clipboardTimer);
   for (const client of wss.clients) client.terminate();
+  for (const client of realtimeWss.clients) client.terminate();
   wss.close();
+  realtimeWss.close();
   server.close();
 }
 process.once('SIGINT', shutdown);

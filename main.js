@@ -9,6 +9,7 @@ import { LookingGlassWebXRPolyfill, LookingGlassConfig } from "@lookingglass/web
 import { VRButton } from "three/addons/webxr/VRButton.js";
 import { createAssistant } from './assistant/pipeline.js';
 import { createCodexAssistant } from './assistant/codex.js';
+import { createRealtimeAssistant } from './assistant/realtime.js';
 import { layoutCaption } from './caption-layout.js';
 
 // Set up renderer to use full screen
@@ -911,7 +912,9 @@ function reportAssistantError(error) {
 async function startCustomAssistant(session) {
   const settings = await fetch('/api/settings').then((r) => r.json());
   if (session !== assistantSession) return;
-  const create = assistantProvider === 'codex' ? createCodexAssistant : createAssistant;
+  const create = assistantProvider === 'codex' ? createCodexAssistant
+    : assistantProvider === 'realtime' ? createRealtimeAssistant
+    : createAssistant;
   customAssistant = create(settings, {
     onText: updateTextMesh,
     onSpeaker: updateVrmNameDisplay,

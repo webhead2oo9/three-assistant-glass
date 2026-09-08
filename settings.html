@@ -153,6 +153,7 @@
                     <select id="assistantProvider" class="assistant-select">
                         <option value="vapi">Vapi (cloud)</option>
                         <option value="custom">Custom — xAI, OpenAI-compatible or local</option>
+                        <option value="realtime">xAI realtime — Grok Voice speech-to-speech</option>
                         <option value="codex">ChatGPT via Codex (experimental)</option>
                     </select>
                 </div>
@@ -256,6 +257,74 @@
                     <div class="row-control">
                         <input id="codexTaskModel" type="text" maxlength="120" placeholder="Default Codex task model">
                         <p class="hint assistant-hint">Separate from the realtime voice model. Cancel task keeps voice connected; Stop ends voice and running work.</p>
+                    </div>
+                </div>
+            </section>
+        </div>
+
+        <!-- xAI realtime speech-to-speech -->
+        <div id="realtimeAssistantSection" class="section-stack" hidden>
+            <section class="group">
+                <h2 class="group-title"><span class="icon" style="--icon: url('icons/audio-lines.svg')"></span>Grok Voice</h2>
+                <p class="group-intro assistant-hint">One WebSocket carries your voice to xAI and the character’s voice back, so replies start almost immediately and the model handles turn-taking and interruptions itself. Billed per connected minute; the session hangs up while nobody is talking and reconnects on the next sound.</p>
+                <div class="row">
+                    <label class="row-label" for="realtimeApiKey">xAI API key <span class="field-note">Optional if the Custom key is an xAI key</span></label>
+                    <div class="row-control">
+                        <div class="input-wrapper">
+                            <input type="password" id="realtimeApiKey" placeholder="xai-…" class="rounded-input assistant-field">
+                            <button class="toggle-visibility" type="button" data-target="realtimeApiKey" aria-label="Show or hide key">
+                                <img src="icons/eye-off.svg" alt="" class="input-icon">
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <label class="row-label" for="realtimeVoice">Voice</label>
+                    <div class="row-control">
+                        <input type="text" id="realtimeVoice" list="realtimeVoiceOptions" placeholder="eve" class="rounded-input assistant-field">
+                        <datalist id="realtimeVoiceOptions"></datalist>
+                    </div>
+                </div>
+                <div class="row">
+                    <label class="row-label" for="realtimeInstructions">Character instructions</label>
+                    <div class="row-control">
+                        <textarea id="realtimeInstructions" class="rounded-input assistant-field" placeholder="Leave blank to use the Custom assistant’s system prompt"></textarea>
+                        <p class="hint assistant-hint">Placeholders <code>{{date}}</code>, <code>{{hour}}</code> and <code>{{timezone}}</code> work here too.</p>
+                    </div>
+                </div>
+                <div class="row">
+                    <label class="row-label" for="realtimeFirstMessage">First message <span class="field-note">Spoken as written</span></label>
+                    <div class="row-control">
+                        <input type="text" id="realtimeFirstMessage" placeholder="Hey there! How can I help?" class="rounded-input assistant-field">
+                    </div>
+                </div>
+                <label class="row switch">
+                    <span class="row-label">Tools <span class="field-note">Check the time, open links</span></span>
+                    <span class="row-control"><input type="checkbox" id="realtimeTools" class="assistant-toggle"><span class="slider"></span></span>
+                </label>
+                <label class="row switch" for="realtimeAutoExpressions">
+                    <span class="row-label">Automatic expressions <span class="field-note">Experimental</span></span>
+                    <span class="row-control">
+                        <input type="checkbox" id="realtimeAutoExpressions" class="assistant-toggle"><span class="slider"></span>
+                        <span class="hint assistant-hint">Estimate facial expressions from the character’s English replies. Runs locally; first use downloads a roughly 125 MB model.</span>
+                    </span>
+                </label>
+            </section>
+
+            <section class="group">
+                <h2 class="group-title"><span class="icon" style="--icon: url('icons/flask-round.svg')"></span>Advanced</h2>
+                <p class="group-intro assistant-hint">Changes apply when you next press Start.</p>
+                <div class="row">
+                    <label class="row-label" for="realtimeModel">Model <span class="field-note">Optional override</span></label>
+                    <div class="row-control">
+                        <input type="text" id="realtimeModel" maxlength="120" placeholder="Default: grok-voice-latest" class="rounded-input assistant-field">
+                    </div>
+                </div>
+                <div class="row">
+                    <label class="row-label" for="realtimeIdleSeconds">Hang up after <span class="field-note">Seconds of silence</span></label>
+                    <div class="row-control">
+                        <input type="number" id="realtimeIdleSeconds" min="0" step="5" placeholder="90" class="rounded-input assistant-field">
+                        <p class="hint assistant-hint">The microphone stays on and the conversation resumes where it left off (xAI keeps it for about 30 minutes). Set 0 to stay connected until you press Stop.</p>
                     </div>
                 </div>
             </section>

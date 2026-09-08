@@ -353,10 +353,11 @@ const ASSISTANT_TEXT_FIELDS = [
     'sttBaseUrl', 'sttApiKey', 'sttModel',
     'ttsBaseUrl', 'ttsApiKey', 'ttsModel', 'ttsVoice', 'ttsSpeed',
     'assistantLanguage',
+    'realtimeApiKey', 'realtimeModel', 'realtimeVoice', 'realtimeInstructions', 'realtimeFirstMessage', 'realtimeIdleSeconds',
     'codexInstructions', 'codexModel', 'codexWorkspace', 'codexTaskModel',
 ];
 const ASSISTANT_SELECTS = ['assistantProvider', 'sttProvider', 'ttsProvider', 'codexVoice'];
-const ASSISTANT_TOGGLES = ['bargeIn', 'llmStream', 'llmTools', 'codexAutoExpressions'];
+const ASSISTANT_TOGGLES = ['bargeIn', 'llmStream', 'llmTools', 'realtimeTools', 'realtimeAutoExpressions', 'codexAutoExpressions'];
 
 const ASSISTANT_PRESETS = {
     xai:      { llmBaseUrl: 'https://api.x.ai/v1', llmModel: 'grok-4.6', sttProvider: 'xai', ttsProvider: 'xai', ttsVoice: 'eve', sttBaseUrl: '', ttsBaseUrl: '' },
@@ -404,6 +405,7 @@ function updateAssistantUI() {
     const provider = document.getElementById('assistantProvider').value;
     document.getElementById('vapiAssistantSection').hidden = provider !== 'vapi';
     document.getElementById('customAssistantSection').hidden = provider !== 'custom';
+    document.getElementById('realtimeAssistantSection').hidden = provider !== 'realtime';
     document.getElementById('codexAssistantSection').hidden = provider !== 'codex';
     window.dispatchEvent(new Event('assistant-provider-changed'));
 
@@ -419,10 +421,11 @@ function updateAssistantUI() {
     document.getElementById('ttsVoice').placeholder =
         { xai: 'eve', openai: 'alloy', kokoro: 'af_heart', browser: 'System default' }[tts] || '';
     if (provider === 'custom') loadVoiceOptions(tts);
+    if (provider === 'realtime') loadVoiceOptions('xai', 'realtimeVoiceOptions');
 }
 
-async function loadVoiceOptions(provider) {
-    const datalist = document.getElementById('ttsVoiceOptions');
+async function loadVoiceOptions(provider, datalistId = 'ttsVoiceOptions') {
+    const datalist = document.getElementById(datalistId);
     let voices = STATIC_VOICES[provider] || [];
     if (provider === 'browser') {
         voices = speechSynthesis.getVoices().map(v => v.name);
@@ -453,6 +456,8 @@ async function initAssistantTab() {
     document.getElementById('bargeIn').checked = settings.bargeIn !== false;
     document.getElementById('llmStream').checked = settings.llmStream !== false;
     document.getElementById('llmTools').checked = settings.llmTools !== false;
+    document.getElementById('realtimeTools').checked = settings.realtimeTools !== false;
+    document.getElementById('realtimeAutoExpressions').checked = settings.realtimeAutoExpressions === true;
     document.getElementById('codexAutoExpressions').checked = settings.codexAutoExpressions === true;
     updateAssistantUI();
 
