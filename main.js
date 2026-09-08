@@ -1062,6 +1062,9 @@ function StartXRSession() {
     uiRoot.position.x = 0.8
     uiRoot.position.z = 0.5
 
+    // The star field is a desktop backdrop; inside the hologram it would sit offset behind the character
+    sparklesGroup.visible = false;
+
     // Hand the caption over to the 3D box, which is visible inside the hologram
     xrPresenting = true;
     document.body.classList.add('xr-presenting');
