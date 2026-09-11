@@ -116,7 +116,7 @@ app.post('/api/settings', express.json(), (req, res, next) => {
       'assistantProvider', 'assistantLanguage', 'bargeIn',
       'llmBaseUrl', 'llmApiKey', 'llmModel', 'llmSystemPrompt', 'llmFirstMessage', 'llmStream', 'llmTools', 'llmAutoExpressions',
       'assistantMode', 'realtimeProvider', 'realtimeBaseUrl', 'realtimeApiKey', 'realtimeModel', 'realtimeVoice',
-      'realtimeIdleSeconds', 'realtimeAutoExpressions',
+      'realtimeIdleSeconds', 'realtimeAutoExpressions', 'liveBackendModel',
       'sttProvider', 'sttBaseUrl', 'sttApiKey', 'sttModel',
       'ttsProvider', 'ttsBaseUrl', 'ttsApiKey', 'ttsModel', 'ttsVoice', 'ttsSpeed',
       'codexInstructions', 'codexModel', 'codexVoice', 'codexWorkspace', 'codexTaskModel', 'codexAutoExpressions',

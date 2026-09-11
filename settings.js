@@ -391,7 +391,7 @@ const ASSISTANT_TEXT_FIELDS = [
     'sttBaseUrl', 'sttApiKey', 'sttModel',
     'ttsBaseUrl', 'ttsApiKey', 'ttsModel', 'ttsVoice', 'ttsSpeed',
     'assistantLanguage',
-    'realtimeBaseUrl', 'realtimeApiKey', 'realtimeModel', 'realtimeVoice', 'realtimeIdleSeconds',
+    'realtimeBaseUrl', 'realtimeApiKey', 'realtimeModel', 'realtimeVoice', 'realtimeIdleSeconds', 'liveBackendModel',
     'codexInstructions', 'codexModel', 'codexWorkspace', 'codexTaskModel',
 ];
 const ASSISTANT_SELECTS = ['assistantProvider', 'assistantMode', 'realtimeProvider', 'sttProvider', 'ttsProvider', 'codexVoice'];
@@ -410,10 +410,13 @@ const ASSISTANT_PRESETS = {
 const REALTIME_DEFAULTS = {
     xai:    { model: 'grok-voice-latest', voice: 'eve', url: 'wss://api.x.ai/v1/realtime' },
     openai: { model: 'gpt-realtime-2.1', voice: 'marin', url: 'wss://api.openai.com/v1/realtime' },
+    live:   { model: 'gpt-live-1', voice: 'marin', url: 'wss://api.openai.com/v1/live/sessions' },
 };
 
 const STATIC_VOICES = {
     'openai-realtime': ['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse'],
+    live: ['marin', 'cedar', 'alloy', 'ash', 'ballad', 'beacon', 'bossa', 'cinder', 'coral', 'delta', 'echo', 'gleam',
+           'meridian', 'quartz', 'ripple', 'sage', 'shimmer', 'stone', 'tempo', 'verse', 'vesper', 'willow'],
     kokoro: ['af_heart', 'af_bella', 'af_nicole', 'af_sarah', 'af_sky', 'am_adam', 'am_michael', 'am_fenrir',
              'bf_emma', 'bf_isabella', 'bm_george', 'bm_lewis', 'bm_fable'],
 };
@@ -462,7 +465,8 @@ function updateAssistantUI() {
     document.getElementById('realtimeModel').placeholder = `Default: ${defaults.model}`;
     document.getElementById('realtimeVoice').placeholder = defaults.voice;
     document.getElementById('realtimeBaseUrl').placeholder = defaults.url;
-    document.getElementById('realtimeApiKey').placeholder = realtimeProvider === 'openai' ? 'sk-…' : 'xai-…';
+    document.getElementById('realtimeApiKey').placeholder = realtimeProvider === 'xai' ? 'xai-…' : 'sk-…';
+    setHidden('.live-only', realtimeProvider !== 'live');
     if (provider === 'custom' && realtime) void refreshRealtimeVoiceSuggestions();
 
     const stt = document.getElementById('sttProvider').value;
@@ -566,8 +570,8 @@ window.speechSynthesis?.addEventListener?.('voiceschanged', () => {
 
 async function refreshRealtimeVoiceSuggestions() {
     const provider = document.getElementById('realtimeProvider').value;
-    const entries = provider === 'openai'
-        ? STATIC_VOICES['openai-realtime'].map(v => ({ value: v, label: '' }))
+    const entries = provider === 'openai' ? STATIC_VOICES['openai-realtime'].map(v => ({ value: v, label: '' }))
+        : provider === 'live' ? STATIC_VOICES.live.map(v => ({ value: v, label: '' }))
         : await xaiVoices();
     noteSuggestions('realtimeVoice', fillDatalist(document.getElementById('realtimeVoiceOptions'), entries), 'voices');
 }
@@ -591,7 +595,7 @@ async function initAssistantTab() {
     const legacyRealtime = settings.assistantProvider === 'realtime';
     document.getElementById('assistantProvider').value = legacyRealtime ? 'custom' : (settings.assistantProvider || 'vapi');
     document.getElementById('assistantMode').value = legacyRealtime || settings.assistantMode === 'realtime' ? 'realtime' : 'pipeline';
-    document.getElementById('realtimeProvider').value = settings.realtimeProvider === 'openai' ? 'openai' : 'xai';
+    document.getElementById('realtimeProvider').value = ['openai', 'live'].includes(settings.realtimeProvider) ? settings.realtimeProvider : 'xai';
     if (legacyRealtime) saveSettingsBatch({ assistantProvider: 'custom', assistantMode: 'realtime' });
     document.getElementById('sttProvider').value = settings.sttProvider || 'xai';
     document.getElementById('ttsProvider').value = settings.ttsProvider || 'xai';

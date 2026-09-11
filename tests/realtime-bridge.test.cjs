@@ -151,6 +151,8 @@ test('a missing key or a refused handshake reaches the browser as an error befor
   assert.equal(none.upstreams.length, 0);
   assert.match(none.browser.frames()[0].error.message, /No OpenAI API key/);
   assert.equal(none.browser.closed.code, 1011);
+  const live = await harness({ realtimeProvider: 'live' });
+  assert.match(live.browser.frames()[0].error.message, /No OpenAI API key/);
 
   const h = await harness({ llmApiKey: 'bad' });
   const res = new EventEmitter();
@@ -176,4 +178,77 @@ test('closing either side closes the other', async () => {
   c.upstream.open();
   c.upstream.close(1000);
   assert.equal(c.browser.closed.code, 1000);
+});
+
+test('GPT-Live: opens the live endpoint, starts the session with delegation, tools and the browser\'s transcript, then streams audio', async () => {
+  const h = await harness({ realtimeProvider: 'live', llmApiKey: 'sk-key', realtimeVoice: 'cedar', llmSystemPrompt: 'Today is {{date}}. Be brief.' });
+  assert.equal(h.upstream.url, 'wss://api.openai.com/v1/live/sessions'); // the model goes in session.start, not the URL
+  assert.equal(h.upstream.options.headers.Authorization, 'Bearer sk-key');
+
+  h.browser.receive({ type: 'session.history', items: [{ role: 'assistant', text: 'Hi there!' }, { role: 'user', text: 'Hello' }] });
+  h.browser.receive({ type: 'session.input_audio.append', audio: 'AAAA' });
+  assert.deepEqual(h.upstream.sent, []);
+  h.upstream.open();
+  const [start, audio] = h.upstream.frames();
+  assert.equal(audio.type, 'session.input_audio.append');
+  assert.equal(start.type, 'session.start');
+  const { session } = start;
+  assert.equal(session.model, 'gpt-live-1');
+  assert.match(session.instructions, /^Today is \w+, \w+ \d+, \d{4}\. Be brief\./);
+  assert.match(session.instructions, /Interruption policy/);
+  assert.match(session.instructions, /Backend tools:\n- get_time: time/);
+  assert.deepEqual(session.audio, { format: { type: 'audio/pcm', rate: 24000 }, output: { voice: 'cedar' } });
+  assert.equal(session.delegation.type, 'responses');
+  assert.equal(session.delegation.responses.model, 'gpt-5.6-luna');
+  assert.match(session.delegation.responses.instructions, /^Today is .*Be brief\.\n\nYou are the backend of a live voice conversation/s);
+  assert.deepEqual(session.delegation.responses.tools, [{ type: 'function', name: 'get_time', description: 'time', parameters: { type: 'object', properties: {} } }]);
+  assert.deepEqual(session.input, [
+    { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'Hi there!' }] },
+    { type: 'message', role: 'user', content: [{ type: 'input_text', text: 'Hello' }] },
+  ]);
+  assert.deepEqual(h.browser.frames(), []); // the history never reaches the browser side as an echo
+
+  h.upstream.receive({ type: 'session.output_audio.delta', delta: 'UklG' });
+  assert.deepEqual(h.browser.frames(), [{ type: 'session.output_audio.delta', delta: 'UklG' }]);
+});
+
+test('GPT-Live: the backend model and tools follow the settings; a start without a transcript waits briefly, and a late transcript becomes context', async () => {
+  const h = await harness({ realtimeProvider: 'live', llmApiKey: 'k', liveBackendModel: 'gpt-5.6-terra', llmTools: false });
+  h.upstream.open();
+  assert.deepEqual(h.upstream.sent, []);
+  await new Promise((r) => setTimeout(r, 350));
+  const [start] = h.upstream.frames();
+  assert.equal(start.type, 'session.start');
+  assert.equal(start.session.delegation.responses.model, 'gpt-5.6-terra');
+  assert.equal(start.session.delegation.responses.tools, undefined);
+  assert.equal(start.session.input, undefined);
+  assert.doesNotMatch(start.session.instructions, /get_time/);
+
+  h.browser.receive({ type: 'session.history', items: [{ role: 'user', text: 'Hello' }, { role: 'assistant', text: 'Hi!' }] });
+  const context = h.upstream.frames().at(-1);
+  assert.equal(context.type, 'session.thinking.append');
+  assert.equal(context.delegation_id, null);
+  assert.equal(context.content, 'Conversation so far:\nUser: Hello\nYou: Hi!');
+});
+
+test('GPT-Live: a function call inside a wrapped Responses event runs on the server and continues the backend response', async () => {
+  const calls = [];
+  const h = await harness({ realtimeProvider: 'live', llmApiKey: 'k' }, { tools: fakeTools(calls) });
+  h.browser.receive({ type: 'session.history', items: [] });
+  h.upstream.open();
+  h.upstream.receive({
+    type: 'response.event', delegation_id: 'd1',
+    event: { type: 'response.output_item.done', item: { type: 'function_call', name: 'get_time', arguments: '{}', call_id: 'call_1' } },
+  });
+  await tick();
+  assert.deepEqual(calls, [{ name: 'get_time', args: {} }]);
+  assert.deepEqual(h.upstream.frames().slice(1), [
+    { type: 'response.item.create', item: { type: 'function_call_output', call_id: 'call_1', output: JSON.stringify({ time: '3:42 PM' }) } },
+    { type: 'response.create' },
+  ]);
+  assert.deepEqual(h.browser.frames().map((f) => f.type), ['response.event', 'tool']);
+  // Other wrapped events, and a message item, are not tool calls
+  h.upstream.receive({ type: 'response.event', event: { type: 'response.output_item.done', item: { type: 'message' } } });
+  await tick();
+  assert.equal(calls.length, 1);
 });

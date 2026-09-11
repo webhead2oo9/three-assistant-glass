@@ -234,3 +234,76 @@ test('a failed first connection rejects start with the server\'s reason; a later
   assert.equal(later.sockets.length, 2);
   later.assistant.stop();
 });
+
+test('GPT-Live: hands over the transcript on open, starts on session.started, greets through appended instructions and uses the Live event names', async () => {
+  const h = await harness({ realtimeProvider: 'live' });
+  const starting = h.assistant.start();
+  await tick();
+  const socket = h.sockets[0];
+  socket.open();
+  assert.deepEqual(socket.sent, [{ type: 'session.history', items: [] }]);
+  h.audio.hooks.onChunk(frame(1000));
+  h.assistant.addSystemMessage('Clipboard: hello');
+  socket.receive({ type: 'session.updated', session: {} }); // only acknowledges delegation changes on Live
+  assert.equal(socket.sent.length, 1);
+  socket.receive({ type: 'session.started', session: { id: 'live_1' } });
+  await starting;
+  const types = socket.sent.map((f) => f.type);
+  assert.deepEqual(types, ['session.history', 'session.thinking.append', 'session.input_audio.append', 'session.instructions.append']);
+  assert.deepEqual(socket.sent[1], { type: 'session.thinking.append', delegation_id: null, content: 'Clipboard: hello' });
+  assert.match(socket.sent[3].content, /saying exactly "Hi there!"/);
+  assert.equal(socket.sent[3].delegation_id, null);
+  h.audio.hooks.onChunk(frame(1000));
+  assert.equal(socket.sent.at(-1).type, 'session.input_audio.append');
+  assert.equal(h.ui.statuses.at(-1), 'Listening…');
+  h.assistant.stop();
+});
+
+test('GPT-Live: a reply is inferred from the flow of output and ends after a gap, the transcript is kept, and a reconnect starts from it', async () => {
+  const h = await harness({ realtimeProvider: 'live', llmFirstMessage: '', realtimeIdleSeconds: 0.3 });
+  const starting = h.assistant.start();
+  await tick();
+  const socket = h.sockets[0];
+  socket.open();
+  socket.receive({ type: 'session.started', session: {} });
+  await starting;
+
+  socket.receive({ type: 'session.input_transcript.delta', delta: 'What time ', start_ms: 0, end_ms: 500 });
+  socket.receive({ type: 'session.input_transcript.delta', delta: 'is it?', start_ms: 500, end_ms: 900 });
+  await sleep(100);
+  assert.equal(h.ui.texts.at(-1), 'What time is it?');
+  assert.equal(h.ui.speakers.at(-1), 'User');
+
+  socket.receive({ type: 'session.delegation.created', delegation: { id: 'd1', target: 'responses' } });
+  assert.equal(h.ui.statuses.at(-1), 'Thinking…');
+  socket.receive({ type: 'session.output_audio.delta', delta: 'AAAA' });
+  socket.receive({ type: 'session.output_transcript.delta', delta: 'It is noon.', start_ms: 2000, end_ms: 3000 });
+  assert.deepEqual(h.audio.played, ['AAAA']);
+  assert.equal(h.ui.statuses.at(-1), 'Speaking…');
+  // A backchannel while the character talks does not replace the caption
+  socket.receive({ type: 'session.input_transcript.delta', delta: 'mm-hm', start_ms: 2500, end_ms: 2700 });
+  h.audio.playedSeconds = 1;
+  await sleep(SETTLE_MS);
+  assert.equal(h.ui.texts.at(-1), 'It is noon.');
+  h.audio.playing = 0;
+  h.audio.hooks.onPlaybackEnd();
+  assert.equal(h.ui.statuses.at(-1), 'Speaking…'); // output may still be coming
+  await sleep(900);                                 // …but it has stopped: the reply is over
+  assert.equal(h.ui.statuses.at(-1), 'Listening…');
+
+  await sleep(350);                                 // idle → hang up
+  assert.equal(socket.closed, 1000);
+  for (let i = 0; i < 5; i++) h.audio.hooks.onChunk(frame(8000));
+  const resumed = h.sockets[1];
+  assert.equal(resumed.url, 'ws://localhost:3000/api/assistant/realtime');
+  resumed.open();
+  assert.deepEqual(resumed.sent[0], { type: 'session.history', items: [
+    { role: 'user', text: 'What time is it?' },
+    { role: 'assistant', text: 'It is noon.' },
+    { role: 'user', text: 'mm-hm' },
+  ] });
+  resumed.receive({ type: 'session.started', session: {} });
+  assert.ok(resumed.sent.slice(1).every((f) => f.type === 'session.input_audio.append'));
+  assert.equal(h.ui.statuses.at(-1), 'Listening…');
+  h.assistant.stop();
+});

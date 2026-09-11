@@ -18,7 +18,7 @@ Customizable 3D conversational AI character
 - Function Calling
 - Audio Recording
 
-### Voice Assistant - Realtime speech-to-speech (xAI Grok Voice, OpenAI gpt-realtime)
+### Voice Assistant - Realtime speech-to-speech (xAI Grok Voice, OpenAI gpt-realtime, OpenAI GPT-Live)
 
 - Speech-to-speech over one WebSocket: fastest replies, natural interruptions, expressive voice
 - Hangs up while nobody is talking and resumes the conversation on the next sound, so you only pay for conversation
@@ -110,17 +110,19 @@ The system prompt can use `{{date}}`, `{{hour}}` and `{{timezone}}`; they're fil
 | Browser | Chrome Web Speech | OS voices | Zero setup; Chrome sends audio to Google |
 | Kokoro | — | In-browser Kokoro-82M | Free and offline after a one-time ~90–330 MB download |
 
-## Realtime speech-to-speech (xAI Grok Voice or OpenAI gpt-realtime)
+## Realtime speech-to-speech (xAI Grok Voice, OpenAI gpt-realtime or OpenAI GPT-Live)
 
 The fastest option: one WebSocket carries your voice to the provider and the character's voice back, so replies begin almost as soon as you stop talking. The provider handles turn-taking and interruptions, and the voice carries the model's tone instead of being read out by a separate synthesizer.
 
 1. Open Settings → **Assistant**, choose **Custom**, and set *Voice mode* to **Realtime speech-to-speech**
-2. Pick **xAI** or **OpenAI** under *Realtime voice*. The language model key is used unless you paste a separate one
+2. Pick **xAI**, **OpenAI gpt-realtime** or **OpenAI GPT-Live** under *Realtime voice*. The language model key is used unless you paste a separate one
 3. Optionally pick a voice (`eve`, `ara`, `rex`… on xAI; `marin`, `cedar`, `alloy`… on OpenAI) and press **Start**
 
 The system prompt, first message and tools (`get_time`, `open_url`) from the *Language model* group apply in both modes; the realtime model replaces the chat model and speaks for itself. The caption is paced to the audio so it reads at the speed the character talks.
 
-**Cost.** xAI bills per connected minute (about $0.08 at the time of writing); OpenAI bills per audio token, which works out to a few cents a minute of speech on `gpt-realtime-2.1` and less on the mini model. Either way it is far more than the speech-to-text → model → text-to-speech pipeline, which costs fractions of a cent per turn and nothing while idle. To keep the cost tied to actual conversation, the session hangs up the upstream socket after **Hang up after** seconds of silence (default 90) while the microphone stays on; the next sound reconnects. xAI resumes the same conversation (kept for about 30 minutes); OpenAI is handed the transcript so far. Set it to 0 to stay connected until you press Stop.
+**GPT-Live** (`gpt-live-1`) is OpenAI's full-duplex model: it listens while it talks, so interruptions and back-channel "mm-hm"s work like a phone call, and it hands anything that needs thought or a tool to a backend Responses model, the same split ChatGPT Voice uses. Pick the backend under *Backend model* (default `gpt-5.6-luna`, the cheap one; Terra or Astra for harder questions). The system prompt goes to both halves, with the conversation and delegation policy from OpenAI's Live prompting guide appended for the voice half. Tools run on the backend and are executed by this server as usual.
+
+**Cost.** xAI bills per connected minute (about $0.08 at the time of writing); GPT-Live bills $0.05 per connected minute, billed per second, plus the backend model's tokens; gpt-realtime bills per audio token, which works out to a few cents a minute of speech on `gpt-realtime-2.1` and less on the mini model. Either way it is far more than the speech-to-text → model → text-to-speech pipeline, which costs fractions of a cent per turn and nothing while idle. To keep the cost tied to actual conversation, the session hangs up the upstream socket after **Hang up after** seconds of silence (default 90) while the microphone stays on; the next sound reconnects. xAI resumes the same conversation (kept for about 30 minutes); the OpenAI models are handed the transcript so far. Set it to 0 to stay connected until you press Stop.
 
 ## ChatGPT voice through Codex (experimental)
 

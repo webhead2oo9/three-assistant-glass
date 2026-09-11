@@ -42,6 +42,7 @@
   "realtimeModel": "",
   "realtimeVoice": "",
   "realtimeIdleSeconds": 90,
+  "liveBackendModel": "",
   "realtimeAutoExpressions": false,
   "codexInstructions": "",
   "codexModel": "",

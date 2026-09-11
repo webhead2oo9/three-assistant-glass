@@ -383,7 +383,16 @@
                         <select id="realtimeProvider" class="assistant-select">
                             <option value="xai">xAI — Grok Voice, per connected minute</option>
                             <option value="openai">OpenAI — gpt-realtime, per audio token</option>
+                            <option value="live">OpenAI — GPT-Live, per connected minute</option>
                         </select>
+                        <p class="hint assistant-hint live-only" hidden>GPT-Live listens and talks at the same time and hands anything that needs thought or a tool to a backend model, the way ChatGPT Voice does. About $0.05 per minute plus the backend model’s tokens.</p>
+                    </div>
+                </div>
+                <div class="row live-only" hidden>
+                    <label class="row-label" for="liveBackendModel">Backend model <span class="field-note">Answers questions and runs tools</span></label>
+                    <div class="row-control">
+                        <input type="text" id="liveBackendModel" placeholder="Default: gpt-5.6-luna" class="rounded-input assistant-field">
+                        <p class="hint assistant-hint">Any Responses API model on your OpenAI account. Luna is cheap and quick; Terra or Astra for harder questions.</p>
                     </div>
                 </div>
                 <div class="row">
@@ -420,7 +429,7 @@
                     <label class="row-label" for="realtimeIdleSeconds">Hang up after <span class="field-note">Seconds of silence</span></label>
                     <div class="row-control">
                         <input type="number" id="realtimeIdleSeconds" min="0" step="5" placeholder="90" class="rounded-input assistant-field">
-                        <p class="hint assistant-hint">The microphone stays on. xAI resumes the same conversation (kept for about 30 minutes); OpenAI is given the transcript so far. Set 0 to stay connected until you press Stop.</p>
+                        <p class="hint assistant-hint">The microphone stays on. xAI resumes the same conversation (kept for about 30 minutes); the OpenAI models are given the transcript so far. Set 0 to stay connected until you press Stop.</p>
                     </div>
                 </div>
                 <label class="row switch" for="realtimeAutoExpressions">

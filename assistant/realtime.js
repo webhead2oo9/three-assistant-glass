@@ -1,6 +1,6 @@
-// Realtime speech-to-speech (xAI Grok Voice or OpenAI gpt-realtime): mic PCM →
-// local server bridge → provider → PCM back. Same surface as pipeline.js so
-// main.js can't tell them apart:
+// Realtime speech-to-speech (xAI Grok Voice, OpenAI gpt-realtime or OpenAI
+// GPT-Live): mic PCM → local server bridge → provider → PCM back. Same surface
+// as pipeline.js so main.js can't tell them apart:
 //   start(), stop(), addSystemMessage(text), mouthLevel()
 // UI hooks: onText(text), onSpeaker('User'|'Character'), onStatus(text), onError(err)
 //
@@ -11,6 +11,10 @@
 // while hangs up the upstream socket and reconnects on the next sound. xAI
 // resumes the conversation by id; otherwise the transcript so far is replayed
 // so the model keeps its context.
+//
+// GPT-Live is full duplex and has no turn events: audio and transcript simply
+// stream while the model talks. A reply is taken to begin with the first
+// output after quiet and to end once the output has stopped for a moment.
 
 import { createRealtimeAudio, encodePcm16, pcmLevel } from './realtime-audio.js';
 import { createAutomaticExpressions } from './automatic-expressions.js';
@@ -25,6 +29,8 @@ const DEFAULT_CHARS_PER_SECOND = 15; // how fast the transcript is spoken; recal
 const MIN_CHARS_PER_SECOND = 8;
 const MAX_CHARS_PER_SECOND = 30;
 const MAX_REPLAY = 40;           // transcript turns replayed when a provider can't resume
+const LIVE_REPLY_GAP_MS = 800;   // GPT-Live: output silent this long → the reply is over
+const LIVE_USER_GAP_MS = 1200;   // GPT-Live: user transcript quiet this long → the utterance is over
 const IDLE_STATUS = 'Idle — say something to reconnect';
 
 // Seconds of silence before the upstream is hung up; 0 keeps it open
@@ -58,7 +64,9 @@ export function transcriptOf(event) {
 }
 
 export function createRealtimeAssistant(settings, ui) {
-  const provider = settings.realtimeProvider === 'openai' ? 'openai' : 'xai';
+  const provider = ['openai', 'live'].includes(settings.realtimeProvider) ? settings.realtimeProvider : 'xai';
+  const live = provider === 'live';
+  const AUDIO_APPEND = live ? 'session.input_audio.append' : 'input_audio_buffer.append';
   const expressions = createAutomaticExpressions(ui);
   const idleMs = idleSeconds(settings) * 1000;
   let running = false;
@@ -87,6 +95,8 @@ export function createRealtimeAssistant(settings, ui) {
   const transcript = [];     // { role, text } — replayed on reconnect when the provider can't resume
   let idleTimer = null;
   let startWait = null;
+  let liveReplyTimer = null; // GPT-Live: fires when the model has stopped producing output
+  let liveUserTimer = null;  // GPT-Live: fires when the user's transcript has stopped
 
   // Throttled text display
   let pendingText = null;
@@ -166,6 +176,11 @@ export function createRealtimeAssistant(settings, ui) {
     ws = socket;
     ready = false;
     hangingUp = false;
+    socket.onopen = () => {
+      // GPT-Live takes the conversation so far as startup input, so the bridge
+      // needs it before it opens the upstream; it is consumed there, not forwarded.
+      if (ws === socket && live) send({ type: 'session.history', items: transcript.map((t) => ({ role: t.role, text: t.text })) });
+    };
     socket.onmessage = (message) => {
       if (ws !== socket) return;
       let event;
@@ -180,6 +195,7 @@ export function createRealtimeAssistant(settings, ui) {
       speaking = false;
       responding = false;
       stopReveal();
+      clearLiveTimers();
       if (!running || hangingUp) return;
       if (!established) {
         fail(lastError || new Error('Realtime session could not be started'));
@@ -206,7 +222,14 @@ export function createRealtimeAssistant(settings, ui) {
   }
 
   function greet(text) {
-    if (provider === 'xai') {
+    if (live) {
+      // The Live prompting guide's way to make the model speak first
+      send({
+        type: 'session.instructions.append',
+        delegation_id: null,
+        content: `Speak first, before the user says anything: greet them by saying exactly "${text}", then listen.`,
+      });
+    } else if (provider === 'xai') {
       // A force message is spoken as-is with no model turn
       send({
         type: 'conversation.item.create',
@@ -239,10 +262,10 @@ export function createRealtimeAssistant(settings, ui) {
     loudFrames = 0;
     const first = !established;
     established = true;
-    if (!first && !resuming) replayTranscript();
+    if (!first && !resuming && !live) replayTranscript(); // GPT-Live got it as startup input
     for (const item of pendingItems) send(item);
     pendingItems.length = 0;
-    for (const frame of ring) send({ type: 'input_audio_buffer.append', audio: encodePcm16(frame) });
+    for (const frame of ring) send({ type: AUDIO_APPEND, audio: encodePcm16(frame) });
     ring.length = 0;
 
     if (startWait) {
@@ -266,7 +289,43 @@ export function createRealtimeAssistant(settings, ui) {
         if (provider === 'xai' && event.session?.conversation_id) conversationId = event.session.conversation_id;
         break;
       case 'session.updated':
+        if (!ready && !live) onReady(); // GPT-Live's session.updated only acknowledges delegation changes
+        break;
+      case 'session.started': // GPT-Live
         if (!ready) onReady();
+        break;
+      case 'session.output_audio.delta': // GPT-Live: no turn events, so a reply is inferred from the flow
+        if (!event.delta) break;
+        liveOutput();
+        audio?.play(event.delta);
+        if (!speaking) {
+          speaking = true;
+          ui.onSpeaker('Character');
+          ui.onStatus('Speaking…');
+        }
+        break;
+      case 'session.output_transcript.delta':
+        if (!event.delta) break;
+        liveOutput();
+        characterText += event.delta;
+        expressions.transcript(characterText, newTurn);
+        newTurn = false;
+        break;
+      case 'session.input_transcript.delta':
+        // Full duplex: the user may talk over the model, so this is not treated
+        // as an interruption; the model decides whether to yield.
+        if (!event.delta) break;
+        userText += event.delta;
+        if (!speaking) { ui.onSpeaker('User'); showText(userText); } // a backchannel shouldn't replace the caption
+        clearIdle();
+        clearTimeout(liveUserTimer);
+        liveUserTimer = setTimeout(liveUserDone, LIVE_USER_GAP_MS);
+        break;
+      case 'session.delegation.created':
+        ui.onStatus('Thinking…');
+        break;
+      case 'session.closed':
+        if (event.reason && event.reason !== 'close_requested') console.warn(`[realtime] live session closed: ${event.reason}`);
         break;
       case 'input_audio_buffer.speech_started':
         onUserSpeech();
@@ -323,6 +382,45 @@ export function createRealtimeAssistant(settings, ui) {
     }
   }
 
+  // ─── GPT-Live turn inference ────────────────────────────────────────────────
+
+  // Output (audio or transcript) is flowing: a reply has begun, or continues
+  function liveOutput() {
+    if (!responding) {
+      responding = true;
+      interrupted = false;
+      newTurn = true;
+      beginReply();
+      clearIdle();
+      if (userText) liveUserDone(); // whatever the user said before the reply is one utterance
+    }
+    clearTimeout(liveReplyTimer);
+    liveReplyTimer = setTimeout(liveReplyDone, LIVE_REPLY_GAP_MS);
+  }
+
+  function liveReplyDone() {
+    liveReplyTimer = null;
+    if (!responding) return;
+    responding = false;
+    remember('assistant', characterText);
+    if (!speaking) { finishReveal(); onQuiet(); }
+  }
+
+  function liveUserDone() {
+    clearTimeout(liveUserTimer);
+    liveUserTimer = null;
+    if (!userText) return;
+    remember('user', userText);
+    userText = '';
+    if (!responding && !speaking) onQuiet();
+  }
+
+  function clearLiveTimers() {
+    clearTimeout(liveReplyTimer);
+    clearTimeout(liveUserTimer);
+    liveReplyTimer = liveUserTimer = null;
+  }
+
   function onUserSpeech() {
     interrupted = responding || speaking;
     stopReveal(); // the caption keeps what was actually heard
@@ -349,7 +447,7 @@ export function createRealtimeAssistant(settings, ui) {
   function onChunk(frame) {
     if (!running) return;
     if (ready && ws?.readyState === 1) {
-      send({ type: 'input_audio_buffer.append', audio: encodePcm16(frame) });
+      send({ type: AUDIO_APPEND, audio: encodePcm16(frame) });
       return;
     }
     ring.push(frame);
@@ -434,6 +532,7 @@ export function createRealtimeAssistant(settings, ui) {
       running = false;
       clearIdle();
       stopReveal();
+      clearLiveTimers();
       hangingUp = true;
       const socket = ws;
       ws = null;
@@ -454,10 +553,13 @@ export function createRealtimeAssistant(settings, ui) {
     // Mirrors Vapi's add-message: context the model sees on its next turn
     addSystemMessage(content) {
       if (!running) return;
-      const item = {
-        type: 'conversation.item.create',
-        item: { type: 'message', role: 'system', content: [{ type: 'input_text', text: content }] },
-      };
+      const item = live
+        // Silent context the Live model may draw on later (500-token limit)
+        ? { type: 'session.thinking.append', delegation_id: null, content: content.slice(0, 1500) }
+        : {
+          type: 'conversation.item.create',
+          item: { type: 'message', role: 'system', content: [{ type: 'input_text', text: content }] },
+        };
       if (ready) send(item);
       else pendingItems.push(item);
     },
