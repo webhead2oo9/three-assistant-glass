@@ -39,7 +39,10 @@ export function createEmotionRouter(service, getSettings) {
   const router = express.Router();
   router.use(localCodexRequest, express.json({ limit: '8kb' }));
   router.post('/', async (req, res) => {
-    if (getSettings().codexAutoExpressions !== true) return res.status(403).json({ error: 'Automatic expressions are off.' });
+    const s = getSettings();
+    if (s.llmAutoExpressions !== true && s.realtimeAutoExpressions !== true && s.codexAutoExpressions !== true) {
+      return res.status(403).json({ error: 'Automatic expressions are off.' });
+    }
     const text = req.body?.text;
     if (typeof text !== 'string' || text.length > 1000) return res.status(400).json({ error: 'Expected up to 1,000 characters.' });
     try {

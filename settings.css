@@ -191,6 +191,8 @@ body {
   line-height: 1.45;
   color: var(--muted);
 }
+.hint.error { color: var(--rose); }
+.hint:empty { display: none; }
 .row.stacked { grid-template-columns: minmax(0, 1fr); }
 .row.stacked .row-label { margin-bottom: 2px; }
 
@@ -220,16 +222,164 @@ input:focus-visible, select:focus-visible, textarea:focus-visible {
 input::placeholder, textarea::placeholder { color: #9aa59f; }
 input[readonly] { background: var(--paper-2); cursor: default; }
 
+/* Only ever seen if combobox.js fails to load: every select on this page is
+   enhanced into a .combo-button and hidden. Styled anyway so the fallback is
+   the redesign's field rather than a raw system control. */
 select {
-  max-width: 380px;
   padding-right: 38px;
   appearance: none;
   -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234b9560' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-image: var(--chevron);
   background-repeat: no-repeat;
   background-position: right 12px center;
   background-size: 18px;
   cursor: pointer;
+}
+
+/* ---- Comboboxes ----------------------------------------------------------
+   Both dropdown-shaped controls on this page - a provider <select> and a
+   free-text model or voice field backed by a <datalist> - are drawn by
+   combobox.js so their open menus match the page instead of the OS. The
+   container wraps rather than clips so that a .field-error inserted beside the
+   control still lands on its own line. */
+
+.combo {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  flex: 1 1 260px;
+  max-width: 480px;
+  min-width: 0;
+}
+.combo > select { display: none; }
+.combo > input,
+.combo > .combo-button { flex: 1 1 100%; max-width: none; min-width: 0; }
+.combo > .field-error { flex-basis: 100%; }
+
+/* The closed control. Deliberately the same box as an input: same height,
+   border, radius and chevron, so a row of fields reads as one family. */
+.combo-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 38px 0 14px;
+  border: 1px solid var(--sand);
+  border-radius: 12px;
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 15px;
+  text-align: left;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.combo-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.combo-value.is-empty { color: #9aa59f; }
+.combo-button:disabled { background: var(--paper-2); opacity: 0.7; }
+
+/* The chevron a suggestion field gets: a real button rather than a background,
+   so the hit area is honest and the arrow can turn when the menu is open.
+   Shown only once an endpoint has actually advertised something - a field with
+   nothing to offer stays a plain text box rather than promising an empty list. */
+.combo-chevron {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: none;
+  width: 38px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: 0 12px 12px 0;
+  background: transparent;
+}
+.combo-input > input.has-suggestions { padding-right: 38px; }
+.combo-input > input.has-suggestions ~ .combo-chevron { display: block; }
+
+.combo-button::after,
+.combo-chevron::after {
+  content: '';
+  position: absolute;
+  top: 11px;
+  right: 12px;
+  width: 18px;
+  height: 18px;
+  background: var(--chevron) no-repeat center / 18px;
+  transition: transform 0.15s ease;
+}
+.combo.is-open .combo-button::after,
+.combo.is-open .combo-chevron::after { transform: rotate(180deg); }
+
+.combo-button:focus-visible,
+.combo.is-open > .combo-button {
+  border-color: var(--leaf);
+  box-shadow: var(--focus);
+}
+
+/* The menu, on <body> so no card or tab strip can clip it. */
+.combo-panel {
+  position: fixed;
+  z-index: 60;
+  padding: 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--sand);
+  border-radius: 12px;
+  background: var(--paper);
+  box-shadow: var(--shadow-m);
+  /* A long catalogue scrolls, and the system scrollbar would be the last
+     system-drawn thing left in the menu. */
+  scrollbar-width: thin;
+  scrollbar-color: var(--sand) transparent;
+}
+.combo-panel::-webkit-scrollbar { width: 10px; }
+.combo-panel::-webkit-scrollbar-track { background: transparent; }
+.combo-panel::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: var(--sand) padding-box;
+}
+.combo-panel::-webkit-scrollbar-thumb:hover { background: var(--muted) padding-box; }
+
+.combo-option {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px 8px 32px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+.combo-option-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.combo-option-note {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 13px;
+}
+.combo-option.is-active { background: var(--leaf-soft); }
+.combo-option[aria-selected='true'] { color: var(--leaf-strong); font-weight: 700; }
+.combo-option[aria-selected='true']::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 9px;
+  width: 15px;
+  height: 15px;
+  margin-top: -7px;
+  background: var(--tick) no-repeat center / 15px;
+}
+.combo-empty {
+  padding: 10px 12px;
+  color: var(--muted);
 }
 
 textarea {

@@ -88,9 +88,12 @@ function checkSettingsChanges() {
   fetch('/api/settings')
     .then(response => response.json())
     .then(newSettings => {
-      if (newSettings.codexAutoExpressions !== currentSettings.codexAutoExpressions) {
-        currentSettings.codexAutoExpressions = newSettings.codexAutoExpressions;
-        customAssistant?.setAutomaticExpressions?.(newSettings.codexAutoExpressions === true);
+      // Expression toggles apply live instead of reloading mid-conversation
+      for (const key of ['llmAutoExpressions', 'realtimeAutoExpressions', 'codexAutoExpressions']) {
+        if (newSettings[key] !== currentSettings[key]) {
+          currentSettings[key] = newSettings[key];
+          customAssistant?.setAutomaticExpressions?.(newSettings[key] === true);
+        }
       }
       if (JSON.stringify(newSettings) !== JSON.stringify(currentSettings)) {
         console.log('Settings have changed. Reloading page...');
@@ -837,10 +840,11 @@ window.addEventListener('load', async () => {
   socket.onmessage = function(event) {
     const data = JSON.parse(event.data);
     if (data.type === 'clipboard') {
-      showToast('Clipboard shared with the assistant');
+      showToast('Host clipboard shared with the assistant');
 
-      // Let the assistant see the clipboard as a system message
-      const systemMessage = `User's clipboard updated: ${data.content}`;
+      // This is the clipboard of the machine running the server, which is only
+      // the user's own when the app is being used on that same machine.
+      const systemMessage = `Host machine clipboard updated: ${data.content}`;
       if (customAssistant) {
         customAssistant.addSystemMessage(systemMessage);
       } else {

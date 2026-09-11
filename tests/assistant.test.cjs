@@ -126,16 +126,19 @@ async function pipelineHarness(settings = {}, startup = Promise.resolve()) {
   const module = await load('assistant/pipeline.js', {}, {
     'assistant/stt.js': { createStt: (_, h) => { hooks = h; return { start: () => startup, stop() {} }; } },
     'assistant/tts.js': { createSpeaker: () => speaker, cleanForSpeech: text => text },
+    'assistant/automatic-expressions.js': { createAutomaticExpressions: () => ({ setEnabled() {}, transcript() {}, reset() {}, stop() {} }) },
     'assistant/llm.js': { streamChat: (messages, options) => {
       const call = { ...deferred(), messages: snapshot(messages), ...options };
       calls.push(call);
       return call.promise;
     } },
   });
+  const ends = [];
   const assistant = module.createAssistant(settings, {
     onText() {}, onSpeaker() {}, onStatus: text => statuses.push(text), onError: err => errors.push(err),
+    onEnd: err => ends.push(err),
   });
-  return { assistant, calls, queued, statuses, errors, hooks: () => hooks, cancels: () => cancels };
+  return { assistant, calls, queued, statuses, errors, ends, hooks: () => hooks, cancels: () => cancels };
 }
 
 test('a new question cancels audio still synthesizing after the LLM finishes', async () => {
@@ -329,4 +332,43 @@ test('streamChat surfaces tool events and server-side errors from the SSE stream
 
   const failing = await load('assistant/llm.js', { fetch: async () => ({ ok: true, body: body(['data: {"error":"tool exploded"}\n\n']) }), TextDecoder });
   await assert.rejects(failing.streamChat([]), /tool exploded/);
+});
+
+test('losing the microphone for good ends the session rather than reporting and listening on', async () => {
+  const h = await pipelineHarness(); await h.assistant.start();
+  const denied = new Error('Microphone permission denied');
+  h.hooks().onFatal(denied);
+  assert.deepEqual(h.ends, [denied]);
+  assert.deepEqual(h.errors, []);
+  h.assistant.stop();
+  // A fatal error arriving after stop belongs to a session nobody is watching.
+  h.hooks().onFatal(new Error('too late'));
+  assert.equal(h.ends.length, 1);
+});
+
+test('a denied microphone is fatal, not a routine recognition error', async () => {
+  let recognition;
+  class Recognition {
+    constructor() { recognition = this; }
+    start() {}
+    abort() {}
+  }
+  const fatal = [], errors = [], cancels = [];
+  const module = await load('assistant/stt.js', {
+    window: { SpeechRecognition: Recognition }, navigator: { language: 'en' },
+    setTimeout: () => 1, clearTimeout() {},
+  }, { 'assistant/vad.js': { createMicVad: () => ({}) } });
+  const stt = module.createStt({ sttProvider: 'browser' }, {
+    onFatal: err => fatal.push(err), onError: err => errors.push(err), onSpeechCancel: () => cancels.push(1),
+  });
+  await stt.start();
+  recognition.onerror({ error: 'no-speech' });
+  assert.deepEqual(fatal, []);
+  recognition.onerror({ error: 'not-allowed' });
+  assert.equal(fatal.length, 1);
+  assert.match(fatal[0].message, /permission denied/i);
+  assert.deepEqual(errors, []);
+  // Listening is over, so onend must not schedule another restart.
+  recognition.onend();
+  assert.deepEqual(cancels, []);
 });

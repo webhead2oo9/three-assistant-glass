@@ -1,7 +1,8 @@
 // Speech-to-text adapters. Every adapter exposes the same surface:
 //   start(), stop(), setSuppressed(bool)
 // and reports through hooks: onUtterance(text), onInterim(text),
-// onSpeechStart(), onSpeechCancel(), onStatus(text), onError(err).
+// onSpeechStart(), onSpeechCancel(), onStatus(text), onError(err) for a
+// recoverable failure, and onFatal(err) for one that has ended listening.
 //
 //   xai / openai  → browser VAD segments speech, server proxy transcribes it
 //   browser       → Chrome's Web Speech API (zero install, audio goes to Google)
@@ -140,8 +141,9 @@ function browserStt(settings, hooks) {
     recognition.onerror = (event) => {
       if (!active) return;
       if (event.error === 'not-allowed') {
+        // Nothing will be heard again this session, and onend must not restart.
         active = false;
-        hooks.onError?.(new Error('Microphone permission denied'));
+        hooks.onFatal?.(new Error('Microphone permission denied'));
       }
       // 'no-speech' / 'aborted' are routine; onend restarts us
     };

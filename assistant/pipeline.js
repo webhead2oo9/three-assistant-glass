@@ -6,6 +6,7 @@
 
 import { streamChat } from './llm.js';
 import { createStt } from './stt.js';
+import { createAutomaticExpressions } from './automatic-expressions.js';
 import { createSpeaker, cleanForSpeech } from './tts.js';
 import { createSentenceSplitter } from './sentences.js';
 
@@ -36,6 +37,7 @@ export function isEcho(transcript, recentSpeech) {
 }
 
 export function createAssistant(settings, ui) {
+  const expressions = createAutomaticExpressions(ui);
   const bargeIn = settings.bargeIn !== false;
   const history = [];
   let stt = null;
@@ -163,9 +165,13 @@ export function createAssistant(settings, ui) {
         },
         onSentence: (sentence) => {
           spokenLog.push({ text: sentence, at: Date.now() });
+          const first = spokenText === '';
           spokenText = spokenText ? `${spokenText} ${sentence}` : sentence;
           ui.onSpeaker('Character');
           showText(spokenText);
+          // Expressions follow what has actually been spoken, so the face
+          // matches the audio rather than running ahead of it.
+          expressions.transcript(spokenText, first);
         },
         onEnd: () => {
           if (!bargeIn) stt?.setSuppressed(false);
@@ -189,10 +195,19 @@ export function createAssistant(settings, ui) {
         onSpeechCancel: () => { heardWhileSpeaking = false; },
         onStatus: ui.onStatus,
         onError: ui.onError,
+        // Listening has stopped for good - the session is over, not just this
+        // utterance, so the UI has to leave its running state.
+        onFatal: (err) => {
+          if (!running || session !== startingSession) return;
+          ui.onEnd?.(err);
+        },
       });
       await stt.start();
       if (!running || session !== startingSession) return;
       ui.onStatus('Listening…');
+
+      // Downloads a model on first use, so it must not delay the greeting.
+      void expressions.setEnabled(settings.llmAutoExpressions === true);
 
       if (settings.llmFirstMessage) {
         history.push({ role: 'assistant', content: settings.llmFirstMessage });
@@ -205,6 +220,7 @@ export function createAssistant(settings, ui) {
       running = false;
       session++;
       cancelReply();
+      expressions.stop();
       stt?.stop();
       speaker?.destroy();
       stt = null;
@@ -220,6 +236,9 @@ export function createAssistant(settings, ui) {
       history.push({ role: 'system', content });
       trimHistory();
     },
+
+    setAutomaticExpressions: (value) => expressions.setEnabled(value === true),
+    resetExpressions: () => expressions.reset(),
 
     mouthLevel: () => speaker?.mouthLevel() ?? 0,
   };

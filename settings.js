@@ -1,3 +1,14 @@
+import { fetchModels, sttModels, ttsModels, voicesFor, describeVoice, describeLanguages, fillDatalist }
+  from './model-catalog.mjs';
+import { enhanceSelect, enhanceCombobox } from './combobox.js';
+
+// Every dropdown-shaped control on this page draws its own menu. This runs
+// before anything populates the form: enhanceSelect leaves the <select> in
+// place as the source of truth, so everything below still reads the same
+// elements by the same ids.
+document.querySelectorAll('select').forEach(enhanceSelect);
+document.querySelectorAll('input[list]').forEach(enhanceCombobox);
+
 document.querySelectorAll('.settings-tab-button').forEach(button => {
     button.addEventListener('click', () => {
         document.querySelectorAll('.settings-tab-button, .tab-content, .settings-tab-item').forEach(el => el.classList.remove('active'));
@@ -10,22 +21,11 @@ document.querySelectorAll('.settings-tab-button').forEach(button => {
     });
 });
 
-const clipboardAccessToggle = document.getElementById('clipboardAccessToggle');
-
-fetch('/api/settings/clipboard')
-    .then(response => response.json())
-    .then(data => {
-        clipboardAccessToggle.checked = data.clipboardAccess;
-    });
-
-clipboardAccessToggle.addEventListener('change', () => {
-    fetch('/api/settings/clipboard', {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ clipboardAccess: clipboardAccessToggle.checked }),
-    });
+// The clipboard of the machine running the server, broadcast to every
+// connected browser. clipboardAccess is the pre-rename key, still honoured.
+const hostClipboardToggle = document.getElementById('hostClipboardToggle');
+hostClipboardToggle.addEventListener('change', () => {
+    saveSettings('hostClipboardBroadcast', hostClipboardToggle.checked);
 });
 
 document.querySelectorAll('.toggle-visibility').forEach(button => {
@@ -116,7 +116,7 @@ async function selectCharacter(name) {
 async function loadSettings() {
     const response = await fetch('/api/settings');
     const settings = await response.json();
-    clipboardAccessToggle.checked = settings.clipboardAccess;
+    hostClipboardToggle.checked = (settings.hostClipboardBroadcast ?? settings.clipboardAccess) === true;
     document.getElementById('publicKey').value = settings.vapiPublicKey || '';
     document.getElementById('privateKey').value = settings.vapiPrivateKey || '';
     
@@ -164,63 +164,101 @@ async function saveSettings(key, value) {
     }
 }
 
-// Function to load assistants from Vapi
-async function loadAssistants() {
-    try {
-        const settings = await fetch('/api/settings').then(res => res.json());
-        const vapiPrivateKey = settings.vapiPrivateKey;
-        
-        if (!vapiPrivateKey) {
-            console.error('Vapi private key not found in settings');
-            return;
-        }
-
-        const options = {
-            method: 'GET',
-            headers: { Authorization: `Bearer ${vapiPrivateKey}` }
-        };
-
-        const response = await fetch('https://api.vapi.ai/assistant', options);
-        const assistants = await response.json();
-
-        const select = document.getElementById('assistantIDSelect');
-        select.innerHTML = '<option value="">Select an assistant</option>';
-        assistants.forEach(assistant => {
-            const option = document.createElement('option');
-            option.value = assistant.id;
-            option.textContent = assistant.name;
-            select.appendChild(option);
-        });
-
-        // Load the selected assistant from settings
-        if (settings.assistantID) {
-            select.value = settings.assistantID;
-            await updateAssistantInfo(settings.assistantID, vapiPrivateKey);
-        }
-    } catch (err) {
-        console.error('Error loading assistants:', err);
+// The list of assistants comes from Vapi, but the saved assistantID belongs to
+// this install. Whenever the list cannot be fetched - no key yet, a bad key, no
+// network - the saved value must still be shown and still be selected, or the
+// page silently presents an empty selection and the setting looks lost.
+function setAssistantOptions(assistants, selectedID) {
+    const select = document.getElementById('assistantIDSelect');
+    select.innerHTML = '';
+    select.append(new Option('Select an assistant', ''));
+    for (const assistant of assistants) {
+        select.append(new Option(assistant.name || assistant.id, assistant.id));
     }
+    if (!selectedID) return;
+    // Keeps a saved assistant selected when it is not in the list: the list
+    // failed to load, or the assistant was renamed or deleted on the dashboard.
+    if (![...select.options].some(o => o.value === selectedID)) {
+        select.append(new Option(`${selectedID} (not in your Vapi account)`, selectedID));
+    }
+    select.value = selectedID;
 }
 
-// Function to update assistant information
-async function updateAssistantInfo(assistantID, vapiPrivateKey) {
-    if (!assistantID) return;
+function setSummary(text) {
+    document.querySelector('#modelName .model-text').textContent = text;
+    document.querySelector('#voiceInfo .voice-text').textContent = text;
+    document.getElementById('systemMessage').textContent = text;
+    document.getElementById('firstMessage').textContent = text;
+}
 
-    const options = {
-        method: 'GET',
-        headers: { Authorization: `Bearer ${vapiPrivateKey}` }
-    };
+function setListStatus(message, isError = false) {
+    const status = document.getElementById('assistantListStatus');
+    status.textContent = message;
+    status.classList.toggle('error', isError);
+}
 
+async function loadAssistants() {
+    const settings = await fetch('/api/settings').then(res => res.json());
+    if ((settings.assistantProvider || 'vapi') !== 'vapi') return;
+
+    // Read the fields rather than the store, so a key typed but not yet saved
+    // can still list assistants - which is the order people actually do it in -
+    // and so reloading the list doesn't discard an unsaved choice of assistant.
+    const vapiPrivateKey = document.getElementById('privateKey').value || settings.vapiPrivateKey || '';
+    const selectedID = document.getElementById('assistantIDSelect').value || settings.assistantID;
+    setAssistantOptions([], selectedID);
+
+    if (!vapiPrivateKey) {
+        setListStatus('Add your Vapi private key above to list your assistants.');
+        setSummary('\u2014');
+        return;
+    }
+
+    setListStatus('Loading assistants\u2026');
+    let assistants;
     try {
-        const response = await fetch(`https://api.vapi.ai/assistant/${assistantID}`, options);
+        const response = await fetch('https://api.vapi.ai/assistant', {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${vapiPrivateKey}` },
+        });
+        if (!response.ok) throw new Error(`Vapi returned ${response.status}`);
+        assistants = await response.json();
+        if (!Array.isArray(assistants)) throw new Error('Unexpected response from Vapi');
+    } catch (err) {
+        console.warn('[vapi] could not list assistants:', err.message);
+        setListStatus(`Could not list assistants (${err.message}). Your saved selection is unchanged.`, true);
+        setSummary('Unavailable');
+        return;
+    }
+
+    setAssistantOptions(assistants, selectedID);
+    setListStatus(assistants.length ? '' : 'This account has no assistants yet.');
+    await updateAssistantInfo(selectedID, vapiPrivateKey);
+}
+
+async function updateAssistantInfo(assistantID, vapiPrivateKey) {
+    if (!assistantID) { setSummary('\u2014'); return; }
+    if (!vapiPrivateKey) { setSummary('Unavailable'); return; }
+
+    setSummary('Loading\u2026');
+    try {
+        const response = await fetch(`https://api.vapi.ai/assistant/${assistantID}`, {
+            method: 'GET',
+            headers: { Authorization: `Bearer ${vapiPrivateKey}` },
+        });
+        if (!response.ok) throw new Error(`Vapi returned ${response.status}`);
         const assistant = await response.json();
 
-        document.querySelector('#modelName .model-text').textContent = assistant.model.model;
-        document.querySelector('#voiceInfo .voice-text').textContent = `${assistant.voice.provider} (${assistant.voice.voiceId})`;
-        document.getElementById('systemMessage').textContent = assistant.model.messages.find(m => m.role === 'system')?.content || 'No system message found';
+        document.querySelector('#modelName .model-text').textContent = assistant.model?.model || 'Unknown';
+        document.querySelector('#voiceInfo .voice-text').textContent = assistant.voice
+            ? `${assistant.voice.provider} (${assistant.voice.voiceId})`
+            : 'Unknown';
+        document.getElementById('systemMessage').textContent =
+            assistant.model?.messages?.find(m => m.role === 'system')?.content || 'No system message found';
         document.getElementById('firstMessage').textContent = assistant.firstMessage || 'No first message found';
     } catch (error) {
-        console.error('Error fetching assistant details:', error);
+        console.warn('[vapi] could not fetch assistant details:', error.message);
+        setSummary('Unavailable');
     }
 }
 
@@ -228,10 +266,13 @@ async function updateAssistantInfo(assistantID, vapiPrivateKey) {
 document.getElementById('assistantIDSelect').addEventListener('change', async (e) => {
     const assistantID = e.target.value;
     await saveSettings('assistantID', assistantID);
-
-    const settings = await fetch('/api/settings').then(res => res.json());
-    await updateAssistantInfo(assistantID, settings.vapiPrivateKey);
+    await updateAssistantInfo(assistantID, document.getElementById('privateKey').value);
 });
+
+// The key and the list it unlocks sit in the same section, so listing can
+// happen as soon as a key is pasted rather than after a save and a reload.
+document.getElementById('privateKey').addEventListener('change', () => { void loadAssistants(); });
+document.getElementById('reloadAssistants').addEventListener('click', () => { void loadAssistants(); });
 
 // Modify the initializePage function
 async function initializePage() {
@@ -244,14 +285,11 @@ async function initializePage() {
 // Call initializePage when the page loads
 initializePage();
 
-clipboardAccessToggle.addEventListener('change', () => {
-    saveSettings('clipboardAccess', clipboardAccessToggle.checked);
-});
-
 document.querySelectorAll('.save-button').forEach(button => {
-    button.addEventListener('click', () => {
+    button.addEventListener('click', async () => {
         const input = button.previousElementSibling.querySelector('input');
-        saveSettings(input.id === 'publicKey' ? 'vapiPublicKey' : 'vapiPrivateKey', input.value);
+        await saveSettings(input.id === 'publicKey' ? 'vapiPublicKey' : 'vapiPrivateKey', input.value);
+        if (input.id === 'privateKey') loadAssistants();
     });
 });
 
@@ -357,7 +395,7 @@ const ASSISTANT_TEXT_FIELDS = [
     'codexInstructions', 'codexModel', 'codexWorkspace', 'codexTaskModel',
 ];
 const ASSISTANT_SELECTS = ['assistantProvider', 'assistantMode', 'realtimeProvider', 'sttProvider', 'ttsProvider', 'codexVoice'];
-const ASSISTANT_TOGGLES = ['bargeIn', 'llmStream', 'llmTools', 'realtimeAutoExpressions', 'codexAutoExpressions'];
+const ASSISTANT_TOGGLES = ['bargeIn', 'llmStream', 'llmTools', 'llmAutoExpressions', 'realtimeAutoExpressions', 'codexAutoExpressions'];
 
 const ASSISTANT_PRESETS = {
     xai:      { llmBaseUrl: 'https://api.x.ai/v1', llmModel: 'grok-4.6', sttProvider: 'xai', ttsProvider: 'xai', ttsVoice: 'eve', sttBaseUrl: '', ttsBaseUrl: '',
@@ -375,7 +413,6 @@ const REALTIME_DEFAULTS = {
 };
 
 const STATIC_VOICES = {
-    openai: ['alloy', 'ash', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer'],
     'openai-realtime': ['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse'],
     kokoro: ['af_heart', 'af_bella', 'af_nicole', 'af_sarah', 'af_sky', 'am_adam', 'am_michael', 'am_fenrir',
              'bf_emma', 'bf_isabella', 'bm_george', 'bm_lewis', 'bm_fable'],
@@ -426,9 +463,7 @@ function updateAssistantUI() {
     document.getElementById('realtimeVoice').placeholder = defaults.voice;
     document.getElementById('realtimeBaseUrl').placeholder = defaults.url;
     document.getElementById('realtimeApiKey').placeholder = realtimeProvider === 'openai' ? 'sk-…' : 'xai-…';
-    if (provider === 'custom' && realtime) {
-        loadVoiceOptions(realtimeProvider === 'openai' ? 'openai-realtime' : 'xai', 'realtimeVoiceOptions');
-    }
+    if (provider === 'custom' && realtime) void refreshRealtimeVoiceSuggestions();
 
     const stt = document.getElementById('sttProvider').value;
     setHidden('.stt-server-only', stt === 'browser');
@@ -441,26 +476,109 @@ function updateAssistantUI() {
     setHidden('.tts-kokoro-only', tts !== 'kokoro');
     document.getElementById('ttsVoice').placeholder =
         { xai: 'eve', openai: 'alloy', kokoro: 'af_heart', browser: 'System default' }[tts] || '';
-    if (provider === 'custom' && !realtime) loadVoiceOptions(tts);
+    if (provider === 'custom' && !realtime) void refreshVoiceSuggestions();
 }
 
-async function loadVoiceOptions(provider, datalistId = 'ttsVoiceOptions') {
-    const datalist = document.getElementById(datalistId);
-    let voices = STATIC_VOICES[provider] || [];
-    if (provider === 'browser') {
-        voices = speechSynthesis.getVoices().map(v => v.name);
-        if (!voices.length) {
-            speechSynthesis.addEventListener('voiceschanged', () => loadVoiceOptions('browser'), { once: true });
-        }
-    } else if (provider === 'xai') {
-        try {
-            const { voices: list = [] } = await fetch('/api/assistant/voices').then(r => r.json());
-            voices = list.map(v => v.id);
-        } catch (err) {
-            console.error('Error loading voices:', err);
-        }
+// ─── Model and voice suggestions ─────────────────────────────────────────────
+// Populated from each configured endpoint's /v1/models, fetched by the server
+// so the key stays there. Everything here is best-effort: if a server offers
+// nothing, the list stays empty and the field behaves exactly as it did
+// before, a plain text input.
+
+let ttsCatalog = [];
+
+function noteSuggestions(id, count, what) {
+    const input = document.getElementById(id);
+    const noun = count === 1 ? what.replace(/s$/, '') : what;
+    input.title = count
+        ? `${count} ${noun} suggested - you can still type any value`
+        : `No ${what} advertised by this endpoint - type the value manually`;
+    // Only advertise a list when there is one to open: this is what shows the
+    // chevron. A chevron on a field with nothing to offer would open on nothing.
+    input.classList.toggle('has-suggestions', count > 0);
+}
+
+async function xaiVoices() {
+    try {
+        const { voices = [] } = await fetch('/api/assistant/voices').then(r => r.json());
+        // xAI's display name is usually just the id capitalised; only show it when it says more
+        return voices.map(v => ({ value: v.id, label: [v.name.toLowerCase() !== v.id.toLowerCase() ? v.name : '', v.language].filter(Boolean).join(' · ') }));
+    } catch (err) {
+        console.warn('[voices] no xAI voice list:', err.message);
+        return [];
     }
-    datalist.innerHTML = voices.map(v => `<option value="${v}"></option>`).join('');
+}
+
+async function refreshLlmSuggestions() {
+    const models = await fetchModels('llm');
+    noteSuggestions('llmModel', fillDatalist(
+        document.getElementById('llmModelOptions'),
+        models.map(m => ({ value: m.id, label: m.owned_by || '' })),
+    ), 'models');
+}
+
+async function refreshSpeechSuggestions() {
+    const sttProvider = document.getElementById('sttProvider').value;
+    const ttsProvider = document.getElementById('ttsProvider').value;
+
+    // Only an endpoint has a catalogue to advertise; the in-browser providers
+    // carry their own fixed voice lists.
+    const stt = sttProvider === 'openai' ? await fetchModels('stt') : [];
+    noteSuggestions('sttModel', fillDatalist(
+        document.getElementById('sttModelOptions'),
+        sttModels(stt).map(m => ({ value: m.id, label: describeLanguages(m.language) })),
+    ), 'models');
+
+    ttsCatalog = ttsProvider === 'openai' ? await fetchModels('tts') : [];
+    noteSuggestions('ttsModel', fillDatalist(
+        document.getElementById('ttsModelOptions'),
+        ttsModels(ttsCatalog).map(m => ({ value: m.id, label: m.sample_rate ? `${m.sample_rate} Hz` : '' })),
+    ), 'models');
+
+    await refreshVoiceSuggestions();
+}
+
+// Voices depend on the selected TTS provider and model: xAI publishes a list,
+// Kokoro carries a dozen, OpenAI's are documented per model, and the OS
+// exposes whatever is installed. Reruns whenever the provider or model changes.
+async function refreshVoiceSuggestions() {
+    const list = document.getElementById('ttsVoiceOptions');
+    const provider = document.getElementById('ttsProvider').value;
+    let entries;
+    if (provider === 'xai') {
+        entries = await xaiVoices();
+    } else if (provider === 'browser') {
+        // getVoices() is empty until the OS list has loaded; the voiceschanged
+        // event fires once it has, and re-entering here fills the list.
+        entries = (window.speechSynthesis?.getVoices() || []).map(v => ({ value: v.name, label: v.lang || '' }));
+    } else if (provider === 'kokoro') {
+        entries = STATIC_VOICES.kokoro.map(v => ({ value: v, label: '' }));
+    } else {
+        const modelId = document.getElementById('ttsModel').value || 'tts-1';
+        entries = voicesFor(ttsCatalog, modelId).map(v => ({ value: v.name, label: describeVoice(v) }));
+    }
+    noteSuggestions('ttsVoice', fillDatalist(list, entries), 'voices');
+}
+
+window.speechSynthesis?.addEventListener?.('voiceschanged', () => {
+    if (document.getElementById('ttsProvider').value === 'browser') void refreshVoiceSuggestions();
+});
+
+async function refreshRealtimeVoiceSuggestions() {
+    const provider = document.getElementById('realtimeProvider').value;
+    const entries = provider === 'openai'
+        ? STATIC_VOICES['openai-realtime'].map(v => ({ value: v, label: '' }))
+        : await xaiVoices();
+    noteSuggestions('realtimeVoice', fillDatalist(document.getElementById('realtimeVoiceOptions'), entries), 'voices');
+}
+
+// A changed endpoint, key or model means a different catalogue
+const LLM_CATALOG_FIELDS = ['llmBaseUrl', 'llmApiKey'];
+const SPEECH_CATALOG_FIELDS = ['sttBaseUrl', 'sttApiKey', 'ttsBaseUrl', 'ttsApiKey', 'llmBaseUrl', 'llmApiKey'];
+function refreshSuggestionsFor(id) {
+    if (LLM_CATALOG_FIELDS.includes(id)) void refreshLlmSuggestions();
+    if (SPEECH_CATALOG_FIELDS.includes(id)) void refreshSpeechSuggestions();
+    if (id === 'ttsModel') void refreshVoiceSuggestions();
 }
 
 async function initAssistantTab() {
@@ -481,12 +599,16 @@ async function initAssistantTab() {
     document.getElementById('bargeIn').checked = settings.bargeIn !== false;
     document.getElementById('llmStream').checked = settings.llmStream !== false;
     document.getElementById('llmTools').checked = settings.llmTools !== false;
+    document.getElementById('llmAutoExpressions').checked = settings.llmAutoExpressions === true;
     document.getElementById('realtimeAutoExpressions').checked = settings.realtimeAutoExpressions === true;
     document.getElementById('codexAutoExpressions').checked = settings.codexAutoExpressions === true;
     updateAssistantUI();
 
     ASSISTANT_TEXT_FIELDS.forEach(id => {
-        document.getElementById(id).addEventListener('change', (e) => saveSettingsBatch({ [id]: e.target.value }));
+        document.getElementById(id).addEventListener('change', async (e) => {
+            await saveSettingsBatch({ [id]: e.target.value });
+            refreshSuggestionsFor(id);
+        });
     });
     ASSISTANT_SELECTS.forEach(id => {
         document.getElementById(id).addEventListener('change', async (e) => {
@@ -507,8 +629,13 @@ async function initAssistantTab() {
             });
             await saveSettingsBatch(preset);
             updateAssistantUI();
+            void refreshLlmSuggestions();
+            void refreshSpeechSuggestions();
         });
     });
+
+    void refreshLlmSuggestions();
+    void refreshSpeechSuggestions();
 }
 
 initAssistantTab();

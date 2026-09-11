@@ -44,7 +44,7 @@ Customizable 3D conversational AI character
 
 ### Experimental
 
-- Plaintext clipboard access
+- Host clipboard broadcast: text copied on the machine running the server is shared with every connected browser and with the assistant as context (`hostClipboardBroadcast` in settings.json, or the toggle under Features)
 
 ### Possible future features
 

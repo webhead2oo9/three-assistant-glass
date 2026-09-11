@@ -59,7 +59,7 @@ app.get('/vapi-web-bundle.min.js', (req, res) => {
 
 // Load or create settings.json
 const settingsPath = path.join(__dirname, 'settings.json');
-let settings = { clipboardAccess: false };
+let settings = { hostClipboardBroadcast: false };
 
 async function loadOrCreateSettings() {
   try {
@@ -88,22 +88,6 @@ app.get('/settings', (req, res) => {
   res.sendFile(path.join(__dirname, 'settings.html'));
 });
 
-// Add a new route to get and set the clipboard access setting
-app.get('/api/settings/clipboard', (req, res) => {
-  res.json({ clipboardAccess: settings.clipboardAccess });
-});
-
-app.post('/api/settings/clipboard', express.json(), async (req, res) => {
-  settings.clipboardAccess = req.body.clipboardAccess;
-  try {
-    await fs.writeFile(settingsPath, JSON.stringify(settings, null, 2));
-    res.json({ success: true });
-  } catch (error) {
-    console.error('Error writing settings:', error);
-    res.status(500).json({ error: 'Unable to update settings' });
-  }
-});
-
 // Modify the /api/settings route
 app.get('/api/settings', async (req, res) => {
   try {
@@ -124,13 +108,13 @@ app.post('/api/settings', express.json(), (req, res, next) => {
     
     // Update all possible settings
     const possibleSettings = [
-      'clipboardAccess', 'vapiPublicKey', 'vapiPrivateKey',
+      'hostClipboardBroadcast', 'vapiPublicKey', 'vapiPrivateKey',
       'showTime', 'timeFormat', 'freeCamera', 'sceneDebug',
       'dragDropSupport', 'vrmDebug', 'animationPicker', 'idleAnimation',
       'characterName', 'assistantID', 'settingsIconToggle', 'assistantShortcut',
       // Custom assistant (Settings → Assistant)
       'assistantProvider', 'assistantLanguage', 'bargeIn',
-      'llmBaseUrl', 'llmApiKey', 'llmModel', 'llmSystemPrompt', 'llmFirstMessage', 'llmStream', 'llmTools',
+      'llmBaseUrl', 'llmApiKey', 'llmModel', 'llmSystemPrompt', 'llmFirstMessage', 'llmStream', 'llmTools', 'llmAutoExpressions',
       'assistantMode', 'realtimeProvider', 'realtimeBaseUrl', 'realtimeApiKey', 'realtimeModel', 'realtimeVoice',
       'realtimeIdleSeconds', 'realtimeAutoExpressions',
       'sttProvider', 'sttBaseUrl', 'sttApiKey', 'sttModel',
@@ -391,6 +375,29 @@ app.get('/api/assistant/voices', async (req, res) => {
   }
 });
 
+// Model catalogue for the settings page: GET /models on the endpoint the given
+// leg (llm, stt or tts) is configured for. The key stays on this side. Any
+// failure - server down, endpoint absent, key rejected - is an empty list, so
+// the field simply stays free text with no suggestions.
+app.get('/api/assistant/models', async (req, res) => {
+  const kind = String(req.query.for || 'llm');
+  if (!['llm', 'stt', 'tts'].includes(kind)) return res.status(400).json({ error: 'for must be llm, stt or tts' });
+  const cfg = kind === 'llm' ? llmConfig() : audioConfig(kind);
+  if (kind !== 'llm' && !['xai', 'openai'].includes(cfg.provider)) return res.json({ models: [] });
+  try {
+    const upstream = await fetch(`${cfg.baseUrl}/models`, { headers: authHeaders(cfg.apiKey), signal: AbortSignal.timeout(8000) });
+    if (!upstream.ok) {
+      console.warn(`[assistant/models] ${cfg.baseUrl} answered ${upstream.status}`);
+      return res.json({ models: [] });
+    }
+    const result = await upstream.json();
+    res.json({ models: Array.isArray(result.data) ? result.data : [] });
+  } catch (error) {
+    console.warn(`[assistant/models] no catalogue from ${cfg.baseUrl}: ${error.message}`);
+    res.json({ models: [] });
+  }
+});
+
 const server = http.createServer(app);
 
 // Two WebSocket endpoints share the HTTP server: the page's notification
@@ -421,21 +428,33 @@ realtimeWss.on('connection', (ws, req) => realtimeBridge.connect(ws, req));
 
 let lastClipboardContent = '';
 
-// Modify the clipboard checking interval
+// Broadcast the HOST MACHINE's clipboard to every connected browser.
+//
+// clipboardy reads the clipboard of the machine running this server, and the
+// result goes to all clients and into the assistant's context, so it is only
+// the user's own clipboard when the browser is on this same machine. The
+// setting is called hostClipboardBroadcast to say whose clipboard it is;
+// clipboardAccess is the pre-rename key, still honoured.
+const hostClipboardOn = () => settings.hostClipboardBroadcast ?? settings.clipboardAccess ?? false;
+let warnedClipboard = false;
+
 const checkClipboard = () => {
-  if (settings.clipboardAccess) {
-    clipboardy.read().then(text => {
-      if (text !== lastClipboardContent) {
-        console.log('Clipboard changed:', text);
-        lastClipboardContent = text;
-        wss.clients.forEach((client) => {
-          if (client.readyState === WebSocket.OPEN) {
-            client.send(JSON.stringify({ type: 'clipboard', content: text }));
-          }
-        });
-      }
-    }).catch(console.error);
+  if (!hostClipboardOn()) { warnedClipboard = false; return; }
+  if (!warnedClipboard) {
+    warnedClipboard = true;
+    console.warn('[clipboard] hostClipboardBroadcast is ON: the clipboard of THIS machine is sent to every browser connected to this server, once a second.');
   }
+  clipboardy.read().then(text => {
+    if (text !== lastClipboardContent) {
+      console.log('[clipboard] host clipboard changed, broadcasting to clients');
+      lastClipboardContent = text;
+      wss.clients.forEach((client) => {
+        if (client.readyState === WebSocket.OPEN) {
+          client.send(JSON.stringify({ type: 'clipboard', content: text }));
+        }
+      });
+    }
+  }).catch(console.error);
 };
 
 const clipboardTimer = setInterval(checkClipboard, 1000);
