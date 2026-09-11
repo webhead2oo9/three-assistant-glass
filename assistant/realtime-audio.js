@@ -38,6 +38,15 @@ export function createRealtimeAudio({ sampleRate = SAMPLE_RATE, onChunk, onPlayb
   let nextTime = 0;
   const playing = new Set();
   let destroyed = false;
+  // Continuous timeline of reply audio: seconds handed to play() and seconds
+  // actually heard so far. The caption is paced against it.
+  let receivedSeconds = 0;
+  let completedSeconds = 0;
+  const playedNow = () => {
+    let played = completedSeconds;
+    if (ctx) for (const node of playing) played += Math.max(0, Math.min(node.duration, ctx.currentTime - node.startAt));
+    return played;
+  };
 
   const stopTracks = () => stream?.getTracks().forEach((track) => track.stop());
 
@@ -78,23 +87,33 @@ export function createRealtimeAudio({ sampleRate = SAMPLE_RATE, onChunk, onPlayb
       node.connect(analyser);
       node.onended = () => {
         if (!playing.delete(node)) return; // stopped on purpose
+        completedSeconds += node.duration;
         if (playing.size === 0 && !destroyed) onPlaybackEnd?.();
       };
       const startAt = Math.max(ctx.currentTime + LEAD_IN_S, nextTime);
+      node.startAt = startAt;
+      node.duration = buffer.duration;
       playing.add(node);
       node.start(startAt);
       nextTime = startAt + buffer.duration;
+      receivedSeconds += buffer.duration;
     },
 
-    // Drop everything queued (barge-in); onPlaybackEnd is not fired for this
+    // Drop everything queued (barge-in); onPlaybackEnd is not fired for this.
+    // What was never heard leaves the timeline too.
     stopPlayback() {
+      const played = playedNow();
       const nodes = [...playing];
       playing.clear();
       nextTime = 0;
+      completedSeconds = played;
+      receivedSeconds = played;
       for (const node of nodes) { try { node.stop(); } catch { /* already ended */ } }
     },
 
     isPlaying: () => playing.size > 0,
+
+    timeline: () => ({ played: playedNow(), received: receivedSeconds }),
 
     mouthLevel() {
       if (playing.size === 0 || !analyser) return 0;

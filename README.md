@@ -18,7 +18,7 @@ Customizable 3D conversational AI character
 - Function Calling
 - Audio Recording
 
-### Voice Assistant - xAI realtime (Grok Voice)
+### Voice Assistant - Realtime speech-to-speech (xAI Grok Voice, OpenAI gpt-realtime)
 
 - Speech-to-speech over one WebSocket: fastest replies, natural interruptions, expressive voice
 - Hangs up while nobody is talking and resumes the conversation on the next sound, so you only pay for conversation
@@ -110,18 +110,17 @@ The system prompt can use `{{date}}`, `{{hour}}` and `{{timezone}}`; they're fil
 | Browser | Chrome Web Speech | OS voices | Zero setup; Chrome sends audio to Google |
 | Kokoro | — | In-browser Kokoro-82M | Free and offline after a one-time ~90–330 MB download |
 
-## xAI realtime voice (Grok Voice)
+## Realtime speech-to-speech (xAI Grok Voice or OpenAI gpt-realtime)
 
-The fastest option: one WebSocket carries your voice to xAI and the character's voice back, so replies begin almost as soon as you stop talking. xAI handles turn-taking and interruptions on its side, and the voice carries the model's tone instead of being read out by a separate synthesizer.
+The fastest option: one WebSocket carries your voice to the provider and the character's voice back, so replies begin almost as soon as you stop talking. The provider handles turn-taking and interruptions, and the voice carries the model's tone instead of being read out by a separate synthesizer.
 
-1. Open Settings → **Assistant** and switch *Voice assistant* to **xAI realtime**
-2. Paste an xAI key, or leave the field blank if the Custom assistant's key is already an xAI key
-3. Pick a voice (`eve`, `ara`, `rex`, …), write the character's instructions, and press **Start**
+1. Open Settings → **Assistant**, choose **Custom**, and set *Voice mode* to **Realtime speech-to-speech**
+2. Pick **xAI** or **OpenAI** under *Realtime voice*. The language model key is used unless you paste a separate one
+3. Optionally pick a voice (`eve`, `ara`, `rex`… on xAI; `marin`, `cedar`, `alloy`… on OpenAI) and press **Start**
 
-Realtime is billed per connected minute (about $0.08 at the time of writing, versus fractions of a cent per turn on the Custom pipeline). To keep the cost tied to actual conversation, the session hangs up the upstream socket after **Hang up after** seconds of silence (default 90) while the microphone stays on; the next sound reconnects and resumes the same conversation, which xAI keeps for about 30 minutes. Set it to 0 to stay connected until you press Stop.
+The system prompt, first message and tools (`get_time`, `open_url`) from the *Language model* group apply in both modes; the realtime model replaces the chat model and speaks for itself. The caption is paced to the audio so it reads at the speed the character talks.
 
-Tools (`get_time`, `open_url`), the `{{date}}`-style placeholders and the local server proxy work the same way as for the Custom assistant. The character's expressions can follow the reply text with *Automatic expressions*.
-
+**Cost.** xAI bills per connected minute (about $0.08 at the time of writing); OpenAI bills per audio token, which works out to a few cents a minute of speech on `gpt-realtime-2.1` and less on the mini model. Either way it is far more than the speech-to-text → model → text-to-speech pipeline, which costs fractions of a cent per turn and nothing while idle. To keep the cost tied to actual conversation, the session hangs up the upstream socket after **Hang up after** seconds of silence (default 90) while the microphone stays on; the next sound reconnects. xAI resumes the same conversation (kept for about 30 minutes); OpenAI is handed the transcript so far. Set it to 0 to stay connected until you press Stop.
 
 ## ChatGPT voice through Codex (experimental)
 

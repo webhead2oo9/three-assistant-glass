@@ -131,8 +131,8 @@ app.post('/api/settings', express.json(), (req, res, next) => {
       // Custom assistant (Settings → Assistant)
       'assistantProvider', 'assistantLanguage', 'bargeIn',
       'llmBaseUrl', 'llmApiKey', 'llmModel', 'llmSystemPrompt', 'llmFirstMessage', 'llmStream', 'llmTools',
-      'realtimeApiKey', 'realtimeModel', 'realtimeVoice', 'realtimeInstructions', 'realtimeFirstMessage',
-      'realtimeIdleSeconds', 'realtimeTools', 'realtimeAutoExpressions',
+      'assistantMode', 'realtimeProvider', 'realtimeBaseUrl', 'realtimeApiKey', 'realtimeModel', 'realtimeVoice',
+      'realtimeIdleSeconds', 'realtimeAutoExpressions',
       'sttProvider', 'sttBaseUrl', 'sttApiKey', 'sttModel',
       'ttsProvider', 'ttsBaseUrl', 'ttsApiKey', 'ttsModel', 'ttsVoice', 'ttsSpeed',
       'codexInstructions', 'codexModel', 'codexVoice', 'codexWorkspace', 'codexTaskModel', 'codexAutoExpressions',
@@ -399,7 +399,7 @@ const wss = new WebSocketServer({ noServer: true });
 const realtimeWss = new WebSocketServer({ noServer: true });
 const realtimeBridge = createRealtimeBridge({
   config: () => realtimeConfig(settings),
-  tools: assistantTools, // the realtimeTools setting decides whether definitions are sent
+  tools: assistantTools, // the llmTools setting decides whether definitions are sent
   WebSocketImpl: WebSocket,
 });
 

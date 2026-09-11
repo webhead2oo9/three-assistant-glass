@@ -153,7 +153,6 @@
                     <select id="assistantProvider" class="assistant-select">
                         <option value="vapi">Vapi (cloud)</option>
                         <option value="custom">Custom — xAI, OpenAI-compatible or local</option>
-                        <option value="realtime">xAI realtime — Grok Voice speech-to-speech</option>
                         <option value="codex">ChatGPT via Codex (experimental)</option>
                     </select>
                 </div>
@@ -262,74 +261,6 @@
             </section>
         </div>
 
-        <!-- xAI realtime speech-to-speech -->
-        <div id="realtimeAssistantSection" class="section-stack" hidden>
-            <section class="group">
-                <h2 class="group-title"><span class="icon" style="--icon: url('icons/audio-lines.svg')"></span>Grok Voice</h2>
-                <p class="group-intro assistant-hint">One WebSocket carries your voice to xAI and the character’s voice back, so replies start almost immediately and the model handles turn-taking and interruptions itself. Billed per connected minute; the session hangs up while nobody is talking and reconnects on the next sound.</p>
-                <div class="row">
-                    <label class="row-label" for="realtimeApiKey">xAI API key <span class="field-note">Optional if the Custom key is an xAI key</span></label>
-                    <div class="row-control">
-                        <div class="input-wrapper">
-                            <input type="password" id="realtimeApiKey" placeholder="xai-…" class="rounded-input assistant-field">
-                            <button class="toggle-visibility" type="button" data-target="realtimeApiKey" aria-label="Show or hide key">
-                                <img src="icons/eye-off.svg" alt="" class="input-icon">
-                            </button>
-                        </div>
-                    </div>
-                </div>
-                <div class="row">
-                    <label class="row-label" for="realtimeVoice">Voice</label>
-                    <div class="row-control">
-                        <input type="text" id="realtimeVoice" list="realtimeVoiceOptions" placeholder="eve" class="rounded-input assistant-field">
-                        <datalist id="realtimeVoiceOptions"></datalist>
-                    </div>
-                </div>
-                <div class="row">
-                    <label class="row-label" for="realtimeInstructions">Character instructions</label>
-                    <div class="row-control">
-                        <textarea id="realtimeInstructions" class="rounded-input assistant-field" placeholder="Leave blank to use the Custom assistant’s system prompt"></textarea>
-                        <p class="hint assistant-hint">Placeholders <code>{{date}}</code>, <code>{{hour}}</code> and <code>{{timezone}}</code> work here too.</p>
-                    </div>
-                </div>
-                <div class="row">
-                    <label class="row-label" for="realtimeFirstMessage">First message <span class="field-note">Spoken as written</span></label>
-                    <div class="row-control">
-                        <input type="text" id="realtimeFirstMessage" placeholder="Hey there! How can I help?" class="rounded-input assistant-field">
-                    </div>
-                </div>
-                <label class="row switch">
-                    <span class="row-label">Tools <span class="field-note">Check the time, open links</span></span>
-                    <span class="row-control"><input type="checkbox" id="realtimeTools" class="assistant-toggle"><span class="slider"></span></span>
-                </label>
-                <label class="row switch" for="realtimeAutoExpressions">
-                    <span class="row-label">Automatic expressions <span class="field-note">Experimental</span></span>
-                    <span class="row-control">
-                        <input type="checkbox" id="realtimeAutoExpressions" class="assistant-toggle"><span class="slider"></span>
-                        <span class="hint assistant-hint">Estimate facial expressions from the character’s English replies. Runs locally; first use downloads a roughly 125 MB model.</span>
-                    </span>
-                </label>
-            </section>
-
-            <section class="group">
-                <h2 class="group-title"><span class="icon" style="--icon: url('icons/flask-round.svg')"></span>Advanced</h2>
-                <p class="group-intro assistant-hint">Changes apply when you next press Start.</p>
-                <div class="row">
-                    <label class="row-label" for="realtimeModel">Model <span class="field-note">Optional override</span></label>
-                    <div class="row-control">
-                        <input type="text" id="realtimeModel" maxlength="120" placeholder="Default: grok-voice-latest" class="rounded-input assistant-field">
-                    </div>
-                </div>
-                <div class="row">
-                    <label class="row-label" for="realtimeIdleSeconds">Hang up after <span class="field-note">Seconds of silence</span></label>
-                    <div class="row-control">
-                        <input type="number" id="realtimeIdleSeconds" min="0" step="5" placeholder="90" class="rounded-input assistant-field">
-                        <p class="hint assistant-hint">The microphone stays on and the conversation resumes where it left off (xAI keeps it for about 30 minutes). Set 0 to stay connected until you press Stop.</p>
-                    </div>
-                </div>
-            </section>
-        </div>
-
         <!-- Custom: xAI, OpenAI-compatible or local -->
         <div id="customAssistantSection" class="section-stack" hidden>
             <section class="group">
@@ -346,8 +277,22 @@
             </section>
 
             <section class="group">
-                <h2 class="group-title"><span class="icon" style="--icon: url('icons/message-circle-code.svg')"></span>Language model</h2>
+                <h2 class="group-title"><span class="icon" style="--icon: url('icons/audio-lines.svg')"></span>Voice mode</h2>
                 <div class="row">
+                    <label class="row-label" for="assistantMode">How the character listens and talks</label>
+                    <div class="row-control">
+                        <select id="assistantMode" class="assistant-select">
+                            <option value="pipeline">Speech-to-text → language model → text-to-speech</option>
+                            <option value="realtime">Realtime speech-to-speech (xAI Grok Voice, OpenAI gpt-realtime)</option>
+                        </select>
+                        <p class="hint assistant-hint realtime-only">One WebSocket carries your voice to the provider and the character’s voice back: replies start almost immediately and the model handles turn-taking and interruptions itself. Billed while connected, so the session hangs up when nobody is talking and reconnects on the next sound.</p>
+                    </div>
+                </div>
+            </section>
+
+            <section class="group">
+                <h2 class="group-title"><span class="icon" style="--icon: url('icons/message-circle-code.svg')"></span>Language model</h2>
+                <div class="row pipeline-only">
                     <label class="row-label" for="llmBaseUrl">Base URL <span class="field-note">OpenAI-compatible</span></label>
                     <div class="row-control">
                         <input type="text" id="llmBaseUrl" placeholder="https://api.x.ai/v1" class="rounded-input assistant-field">
@@ -364,7 +309,7 @@
                         </div>
                     </div>
                 </div>
-                <div class="row">
+                <div class="row pipeline-only">
                     <label class="row-label" for="llmModel">Model</label>
                     <div class="row-control">
                         <input type="text" id="llmModel" placeholder="grok-4.6" class="rounded-input assistant-field">
@@ -383,7 +328,7 @@
                         <input type="text" id="llmFirstMessage" placeholder="Hey there! How can I help?" class="rounded-input assistant-field">
                     </div>
                 </div>
-                <label class="row switch">
+                <label class="row switch pipeline-only">
                     <span class="row-label">Stream responses <span class="field-note">Turn off for servers that don't support streaming</span></span>
                     <span class="row-control"><input type="checkbox" id="llmStream" class="assistant-toggle"><span class="slider"></span></span>
                 </label>
@@ -393,7 +338,65 @@
                 </label>
             </section>
 
-            <section class="group">
+            <section class="group realtime-only">
+                <h2 class="group-title"><span class="icon" style="--icon: url('icons/audio-lines.svg')"></span>Realtime voice</h2>
+                <p class="group-intro assistant-hint">The realtime model replaces the language model above and speaks for itself; the system prompt, first message and tools still apply. Changes take effect when you next press Start.</p>
+                <div class="row">
+                    <label class="row-label" for="realtimeProvider">Provider</label>
+                    <div class="row-control">
+                        <select id="realtimeProvider" class="assistant-select">
+                            <option value="xai">xAI — Grok Voice, per connected minute</option>
+                            <option value="openai">OpenAI — gpt-realtime, per audio token</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="row">
+                    <label class="row-label" for="realtimeApiKey">API key <span class="field-note">Blank uses the language model key</span></label>
+                    <div class="row-control">
+                        <div class="input-wrapper">
+                            <input type="password" id="realtimeApiKey" placeholder="xai-… / sk-…" class="rounded-input assistant-field">
+                            <button class="toggle-visibility" type="button" data-target="realtimeApiKey" aria-label="Show or hide key">
+                                <img src="icons/eye-off.svg" alt="" class="input-icon">
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <label class="row-label" for="realtimeModel">Model <span class="field-note">Optional override</span></label>
+                    <div class="row-control">
+                        <input type="text" id="realtimeModel" maxlength="120" placeholder="Default: grok-voice-latest" class="rounded-input assistant-field">
+                    </div>
+                </div>
+                <div class="row">
+                    <label class="row-label" for="realtimeVoice">Voice</label>
+                    <div class="row-control">
+                        <input type="text" id="realtimeVoice" list="realtimeVoiceOptions" placeholder="eve" class="rounded-input assistant-field">
+                        <datalist id="realtimeVoiceOptions"></datalist>
+                    </div>
+                </div>
+                <div class="row">
+                    <label class="row-label" for="realtimeBaseUrl">WebSocket URL <span class="field-note">Optional override</span></label>
+                    <div class="row-control">
+                        <input type="text" id="realtimeBaseUrl" placeholder="wss://api.x.ai/v1/realtime" class="rounded-input assistant-field">
+                    </div>
+                </div>
+                <div class="row">
+                    <label class="row-label" for="realtimeIdleSeconds">Hang up after <span class="field-note">Seconds of silence</span></label>
+                    <div class="row-control">
+                        <input type="number" id="realtimeIdleSeconds" min="0" step="5" placeholder="90" class="rounded-input assistant-field">
+                        <p class="hint assistant-hint">The microphone stays on. xAI resumes the same conversation (kept for about 30 minutes); OpenAI is given the transcript so far. Set 0 to stay connected until you press Stop.</p>
+                    </div>
+                </div>
+                <label class="row switch" for="realtimeAutoExpressions">
+                    <span class="row-label">Automatic expressions <span class="field-note">Experimental</span></span>
+                    <span class="row-control">
+                        <input type="checkbox" id="realtimeAutoExpressions" class="assistant-toggle"><span class="slider"></span>
+                        <span class="hint assistant-hint">Estimate facial expressions from the character’s English replies. Runs locally; first use downloads a roughly 125 MB model.</span>
+                    </span>
+                </label>
+            </section>
+
+            <section class="group pipeline-only">
                 <h2 class="group-title"><span class="icon" style="--icon: url('icons/audio-lines.svg')"></span>Speech to text</h2>
                 <div class="row">
                     <label class="row-label" for="sttProvider">Provider</label>
@@ -435,7 +438,7 @@
                 </div>
             </section>
 
-            <section class="group">
+            <section class="group pipeline-only">
                 <h2 class="group-title"><span class="icon" style="--icon: url('icons/audio-lines.svg')"></span>Text to speech</h2>
                 <div class="row">
                     <label class="row-label" for="ttsProvider">Provider</label>
@@ -499,7 +502,7 @@
                         <input type="text" id="assistantLanguage" placeholder="auto" class="rounded-input assistant-field">
                     </div>
                 </div>
-                <label class="row switch">
+                <label class="row switch pipeline-only">
                     <span class="row-label">Allow interrupting <span class="field-note">Barge-in: the character stops talking when you speak</span></span>
                     <span class="row-control"><input type="checkbox" id="bargeIn" class="assistant-toggle"><span class="slider"></span></span>
                 </label>

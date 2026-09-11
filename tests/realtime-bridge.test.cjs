@@ -46,9 +46,9 @@ async function harness(settings, { tools = fakeTools(), request } = {}) {
   return { browser, upstream: upstreams[0], upstreams };
 }
 
-test('opens xAI with the key, model and resume id, then configures the session with rendered instructions and flat tools', async () => {
+test('xAI: opens with the key, model and resume id, then configures the session with rendered instructions and flat tools', async () => {
   const h = await harness(
-    { llmApiKey: 'xai-key', realtimeVoice: 'ara', realtimeInstructions: 'Today is {{date}}. Be brief.', assistantLanguage: 'en-US' },
+    { llmApiKey: 'xai-key', realtimeVoice: 'ara', llmSystemPrompt: 'Today is {{date}}. Be brief.', assistantLanguage: 'en-US' },
     { request: { url: '/api/assistant/realtime?conversation_id=conv_1' } },
   );
   const url = new URL(h.upstream.url);
@@ -69,13 +69,44 @@ test('opens xAI with the key, model and resume id, then configures the session w
   assert.deepEqual(update.session.resumption, { enabled: true });
 });
 
-test('the realtime key overrides the chat key, tools can be turned off, and instructions fall back to the chat prompt', async () => {
-  const h = await harness({ llmApiKey: 'chat-key', realtimeApiKey: 'voice-key', realtimeTools: false, llmSystemPrompt: 'Chat prompt', realtimeModel: 'grok-voice-think-fast-2.0' });
-  assert.equal(h.upstream.options.headers.Authorization, 'Bearer voice-key');
-  assert.equal(new URL(h.upstream.url).searchParams.get('model'), 'grok-voice-think-fast-2.0');
+test('OpenAI: uses its endpoint, GA session shape and transcription, and never sends a resume id', async () => {
+  const h = await harness(
+    { realtimeProvider: 'openai', llmApiKey: 'sk-key', realtimeVoice: 'cedar', assistantLanguage: 'en-US', llmSystemPrompt: 'Be brief.' },
+    { request: { url: '/api/assistant/realtime?conversation_id=conv_1' } },
+  );
+  const url = new URL(h.upstream.url);
+  assert.equal(url.origin + url.pathname, 'wss://api.openai.com/v1/realtime');
+  assert.equal(url.searchParams.get('model'), 'gpt-realtime-2.1');
+  assert.equal(url.searchParams.get('conversation_id'), null);
+  assert.equal(h.upstream.options.headers.Authorization, 'Bearer sk-key');
+
   h.upstream.open();
   const [update] = h.upstream.frames();
-  assert.equal(update.session.instructions, 'Chat prompt');
+  assert.deepEqual(update, {
+    type: 'session.update',
+    session: {
+      type: 'realtime',
+      model: 'gpt-realtime-2.1',
+      output_modalities: ['audio'],
+      instructions: 'Be brief.',
+      audio: {
+        input: { format: { type: 'audio/pcm', rate: 24000 }, turn_detection: { type: 'server_vad' }, transcription: { model: 'gpt-4o-mini-transcribe', language: 'en' } },
+        output: { format: { type: 'audio/pcm' }, voice: 'cedar' },
+      },
+      tools: [{ type: 'function', name: 'get_time', description: 'time', parameters: { type: 'object', properties: {} } }],
+    },
+  });
+});
+
+test('the realtime key, URL and model override the defaults, and tools follow the chat toggle', async () => {
+  const h = await harness({ llmApiKey: 'chat-key', realtimeApiKey: 'voice-key', llmTools: false, realtimeModel: 'grok-voice-think-fast-2.0', realtimeBaseUrl: 'wss://proxy.local/realtime/' });
+  assert.equal(h.upstream.options.headers.Authorization, 'Bearer voice-key');
+  const url = new URL(h.upstream.url);
+  assert.equal(url.origin + url.pathname, 'wss://proxy.local/realtime');
+  assert.equal(url.searchParams.get('model'), 'grok-voice-think-fast-2.0');
+  h.upstream.open();
+  const [update] = h.upstream.frames();
+  assert.match(update.session.instructions, /friendly voice assistant/);
   assert.equal(update.session.tools, undefined);
   assert.equal(update.session.audio.input.transcription, undefined);
 });
@@ -116,9 +147,9 @@ test('function calls run on the server, feed the result back and ask for the nex
 });
 
 test('a missing key or a refused handshake reaches the browser as an error before the socket closes', async () => {
-  const none = await harness({});
+  const none = await harness({ realtimeProvider: 'openai' });
   assert.equal(none.upstreams.length, 0);
-  assert.match(none.browser.frames()[0].error.message, /No xAI API key/);
+  assert.match(none.browser.frames()[0].error.message, /No OpenAI API key/);
   assert.equal(none.browser.closed.code, 1011);
 
   const h = await harness({ llmApiKey: 'bad' });
@@ -127,7 +158,7 @@ test('a missing key or a refused handshake reaches the browser as an error befor
   h.upstream.emit('unexpected-response', {}, res);
   res.emit('data', '{"error":"Invalid API key"}');
   res.emit('end');
-  assert.deepEqual(h.browser.frames()[0], { type: 'error', error: { message: 'xAI realtime 401: {"error":"Invalid API key"}' } });
+  assert.deepEqual(h.browser.frames()[0], { type: 'error', error: { message: 'xai realtime 401: {"error":"Invalid API key"}' } });
   assert.equal(h.browser.closed.code, 1011);
 });
 

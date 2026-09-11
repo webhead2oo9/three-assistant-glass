@@ -353,21 +353,30 @@ const ASSISTANT_TEXT_FIELDS = [
     'sttBaseUrl', 'sttApiKey', 'sttModel',
     'ttsBaseUrl', 'ttsApiKey', 'ttsModel', 'ttsVoice', 'ttsSpeed',
     'assistantLanguage',
-    'realtimeApiKey', 'realtimeModel', 'realtimeVoice', 'realtimeInstructions', 'realtimeFirstMessage', 'realtimeIdleSeconds',
+    'realtimeBaseUrl', 'realtimeApiKey', 'realtimeModel', 'realtimeVoice', 'realtimeIdleSeconds',
     'codexInstructions', 'codexModel', 'codexWorkspace', 'codexTaskModel',
 ];
-const ASSISTANT_SELECTS = ['assistantProvider', 'sttProvider', 'ttsProvider', 'codexVoice'];
-const ASSISTANT_TOGGLES = ['bargeIn', 'llmStream', 'llmTools', 'realtimeTools', 'realtimeAutoExpressions', 'codexAutoExpressions'];
+const ASSISTANT_SELECTS = ['assistantProvider', 'assistantMode', 'realtimeProvider', 'sttProvider', 'ttsProvider', 'codexVoice'];
+const ASSISTANT_TOGGLES = ['bargeIn', 'llmStream', 'llmTools', 'realtimeAutoExpressions', 'codexAutoExpressions'];
 
 const ASSISTANT_PRESETS = {
-    xai:      { llmBaseUrl: 'https://api.x.ai/v1', llmModel: 'grok-4.6', sttProvider: 'xai', ttsProvider: 'xai', ttsVoice: 'eve', sttBaseUrl: '', ttsBaseUrl: '' },
-    openai:   { llmBaseUrl: 'https://api.openai.com/v1', llmModel: 'gpt-4o-mini', sttProvider: 'openai', sttModel: 'whisper-1', ttsProvider: 'openai', ttsModel: 'tts-1', ttsVoice: 'alloy', sttBaseUrl: '', ttsBaseUrl: '' },
-    ollama:   { llmBaseUrl: 'http://localhost:11434/v1', llmModel: 'llama3.2', sttProvider: 'browser', ttsProvider: 'kokoro', ttsVoice: 'af_heart' },
-    lmstudio: { llmBaseUrl: 'http://localhost:1234/v1', llmModel: '', sttProvider: 'browser', ttsProvider: 'kokoro', ttsVoice: 'af_heart' },
+    xai:      { llmBaseUrl: 'https://api.x.ai/v1', llmModel: 'grok-4.6', sttProvider: 'xai', ttsProvider: 'xai', ttsVoice: 'eve', sttBaseUrl: '', ttsBaseUrl: '',
+                realtimeProvider: 'xai', realtimeBaseUrl: '', realtimeModel: '', realtimeVoice: '' },
+    openai:   { llmBaseUrl: 'https://api.openai.com/v1', llmModel: 'gpt-4o-mini', sttProvider: 'openai', sttModel: 'whisper-1', ttsProvider: 'openai', ttsModel: 'tts-1', ttsVoice: 'alloy', sttBaseUrl: '', ttsBaseUrl: '',
+                realtimeProvider: 'openai', realtimeBaseUrl: '', realtimeModel: '', realtimeVoice: '' },
+    ollama:   { llmBaseUrl: 'http://localhost:11434/v1', llmModel: 'llama3.2', sttProvider: 'browser', ttsProvider: 'kokoro', ttsVoice: 'af_heart', assistantMode: 'pipeline' },
+    lmstudio: { llmBaseUrl: 'http://localhost:1234/v1', llmModel: '', sttProvider: 'browser', ttsProvider: 'kokoro', ttsVoice: 'af_heart', assistantMode: 'pipeline' },
+};
+
+// Realtime speech-to-speech defaults per provider (the server applies the same ones)
+const REALTIME_DEFAULTS = {
+    xai:    { model: 'grok-voice-latest', voice: 'eve', url: 'wss://api.x.ai/v1/realtime' },
+    openai: { model: 'gpt-realtime-2.1', voice: 'marin', url: 'wss://api.openai.com/v1/realtime' },
 };
 
 const STATIC_VOICES = {
     openai: ['alloy', 'ash', 'coral', 'echo', 'fable', 'nova', 'onyx', 'sage', 'shimmer'],
+    'openai-realtime': ['marin', 'cedar', 'alloy', 'ash', 'ballad', 'coral', 'echo', 'sage', 'shimmer', 'verse'],
     kokoro: ['af_heart', 'af_bella', 'af_nicole', 'af_sarah', 'af_sky', 'am_adam', 'am_michael', 'am_fenrir',
              'bf_emma', 'bf_isabella', 'bm_george', 'bm_lewis', 'bm_fable'],
 };
@@ -405,9 +414,21 @@ function updateAssistantUI() {
     const provider = document.getElementById('assistantProvider').value;
     document.getElementById('vapiAssistantSection').hidden = provider !== 'vapi';
     document.getElementById('customAssistantSection').hidden = provider !== 'custom';
-    document.getElementById('realtimeAssistantSection').hidden = provider !== 'realtime';
     document.getElementById('codexAssistantSection').hidden = provider !== 'codex';
     window.dispatchEvent(new Event('assistant-provider-changed'));
+
+    const realtime = document.getElementById('assistantMode').value === 'realtime';
+    setHidden('.pipeline-only', realtime);
+    setHidden('.realtime-only', !realtime);
+    const realtimeProvider = document.getElementById('realtimeProvider').value;
+    const defaults = REALTIME_DEFAULTS[realtimeProvider] || REALTIME_DEFAULTS.xai;
+    document.getElementById('realtimeModel').placeholder = `Default: ${defaults.model}`;
+    document.getElementById('realtimeVoice').placeholder = defaults.voice;
+    document.getElementById('realtimeBaseUrl').placeholder = defaults.url;
+    document.getElementById('realtimeApiKey').placeholder = realtimeProvider === 'openai' ? 'sk-…' : 'xai-…';
+    if (provider === 'custom' && realtime) {
+        loadVoiceOptions(realtimeProvider === 'openai' ? 'openai-realtime' : 'xai', 'realtimeVoiceOptions');
+    }
 
     const stt = document.getElementById('sttProvider').value;
     setHidden('.stt-server-only', stt === 'browser');
@@ -420,8 +441,7 @@ function updateAssistantUI() {
     setHidden('.tts-kokoro-only', tts !== 'kokoro');
     document.getElementById('ttsVoice').placeholder =
         { xai: 'eve', openai: 'alloy', kokoro: 'af_heart', browser: 'System default' }[tts] || '';
-    if (provider === 'custom') loadVoiceOptions(tts);
-    if (provider === 'realtime') loadVoiceOptions('xai', 'realtimeVoiceOptions');
+    if (provider === 'custom' && !realtime) loadVoiceOptions(tts);
 }
 
 async function loadVoiceOptions(provider, datalistId = 'ttsVoiceOptions') {
@@ -449,14 +469,18 @@ async function initAssistantTab() {
     ASSISTANT_TEXT_FIELDS.forEach(id => {
         document.getElementById(id).value = settings[id] ?? '';
     });
-    document.getElementById('assistantProvider').value = settings.assistantProvider || 'vapi';
+    // Realtime used to be its own provider; it is now a mode of Custom
+    const legacyRealtime = settings.assistantProvider === 'realtime';
+    document.getElementById('assistantProvider').value = legacyRealtime ? 'custom' : (settings.assistantProvider || 'vapi');
+    document.getElementById('assistantMode').value = legacyRealtime || settings.assistantMode === 'realtime' ? 'realtime' : 'pipeline';
+    document.getElementById('realtimeProvider').value = settings.realtimeProvider === 'openai' ? 'openai' : 'xai';
+    if (legacyRealtime) saveSettingsBatch({ assistantProvider: 'custom', assistantMode: 'realtime' });
     document.getElementById('sttProvider').value = settings.sttProvider || 'xai';
     document.getElementById('ttsProvider').value = settings.ttsProvider || 'xai';
     document.getElementById('codexVoice').value = settings.codexVoice || '';
     document.getElementById('bargeIn').checked = settings.bargeIn !== false;
     document.getElementById('llmStream').checked = settings.llmStream !== false;
     document.getElementById('llmTools').checked = settings.llmTools !== false;
-    document.getElementById('realtimeTools').checked = settings.realtimeTools !== false;
     document.getElementById('realtimeAutoExpressions').checked = settings.realtimeAutoExpressions === true;
     document.getElementById('codexAutoExpressions').checked = settings.codexAutoExpressions === true;
     updateAssistantUI();

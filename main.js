@@ -912,8 +912,9 @@ function reportAssistantError(error) {
 async function startCustomAssistant(session) {
   const settings = await fetch('/api/settings').then((r) => r.json());
   if (session !== assistantSession) return;
+  const realtime = settings.assistantMode === 'realtime' || assistantProvider === 'realtime';
   const create = assistantProvider === 'codex' ? createCodexAssistant
-    : assistantProvider === 'realtime' ? createRealtimeAssistant
+    : realtime ? createRealtimeAssistant
     : createAssistant;
   customAssistant = create(settings, {
     onText: updateTextMesh,
