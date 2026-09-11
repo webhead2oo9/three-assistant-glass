@@ -85,6 +85,25 @@
         </section>
 
         <section class="group">
+            <h2 class="group-title"><span class="icon" style="--icon: url('icons/audio-lines.svg')"></span>Lip sync</h2>
+            <p class="group-intro">How far the mouth opens for the voice. Applies live, so leave the character talking while you adjust. Avatars differ, so tune by eye.</p>
+            <div class="row">
+                <label class="row-label" for="mouthGain">Opening <span class="field-note">How wide normal speech opens the mouth</span></label>
+                <div class="row-control range-control">
+                    <input type="range" id="mouthGain" min="0.5" max="3" step="0.1" value="1.5">
+                    <output for="mouthGain" id="mouthGainValue">1.5</output>
+                </div>
+            </div>
+            <div class="row">
+                <label class="row-label" for="mouthCurve">Sensitivity <span class="field-note">Lower opens further on quiet sounds; 1 is linear</span></label>
+                <div class="row-control range-control">
+                    <input type="range" id="mouthCurve" min="0.3" max="1" step="0.05" value="0.6">
+                    <output for="mouthCurve" id="mouthCurveValue">0.6</output>
+                </div>
+            </div>
+        </section>
+
+        <section class="group">
             <h2 class="group-title"><span class="icon" style="--icon: url('icons/bug.svg')"></span>Debug</h2>
             <label class="row switch">
                 <span class="row-label">Free camera <span class="field-note">Orbit, pan and zoom with the mouse</span></span>
@@ -385,7 +404,7 @@
                             <option value="openai">OpenAI — gpt-realtime, per audio token</option>
                             <option value="live">OpenAI — GPT-Live, per connected minute</option>
                         </select>
-                        <p class="hint assistant-hint live-only" hidden>GPT-Live listens and talks at the same time and hands anything that needs thought or a tool to a backend model, the way ChatGPT Voice does. About $0.05 per minute plus the backend model’s tokens.</p>
+                        <p class="hint assistant-hint live-only" hidden>GPT-Live listens and talks at the same time and hands anything that needs thought or a tool to a backend model, the way ChatGPT Voice does. About $0.05 per minute plus the backend model’s tokens. It waits to be spoken to, so the first message above is not used.</p>
                     </div>
                 </div>
                 <div class="row live-only" hidden>

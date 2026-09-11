@@ -111,7 +111,7 @@ app.post('/api/settings', express.json(), (req, res, next) => {
       'hostClipboardBroadcast', 'vapiPublicKey', 'vapiPrivateKey',
       'showTime', 'timeFormat', 'freeCamera', 'sceneDebug',
       'dragDropSupport', 'vrmDebug', 'animationPicker', 'idleAnimation',
-      'characterName', 'assistantID', 'settingsIconToggle', 'assistantShortcut',
+      'characterName', 'assistantID', 'settingsIconToggle', 'assistantShortcut', 'mouthGain', 'mouthCurve',
       // Custom assistant (Settings → Assistant)
       'assistantProvider', 'assistantLanguage', 'bargeIn',
       'llmBaseUrl', 'llmApiKey', 'llmModel', 'llmSystemPrompt', 'llmFirstMessage', 'llmStream', 'llmTools', 'llmAutoExpressions',

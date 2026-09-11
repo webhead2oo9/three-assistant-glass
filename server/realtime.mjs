@@ -34,6 +34,7 @@ const MAX_HISTORY_CHARS = 1500; // a transcript arriving too late goes in as app
 const SAMPLE_RATE = 24000;
 const OPENAI_TRANSCRIBER = 'gpt-4o-mini-transcribe';
 const MAX_QUEUED_FRAMES = 200; // browser frames held until the upstream opens (~4 s of audio)
+const DEBUG = process.env.REALTIME_DEBUG === '1'; // log every upstream event except audio, which is counted
 const CONNECTING = 0;
 const OPEN = 1;
 
@@ -209,11 +210,20 @@ export function createRealtimeBridge({ config, tools, WebSocketImpl, log = conso
         }
         log.log(`[realtime] connected to ${settings.provider} (${settings.model}${conversationId ? ', resumed' : ''})`);
       });
+      let audioEvents = 0;
       upstream.on('message', (data) => {
         const text = data.toString();
         toBrowser(text);
         let event;
         try { event = JSON.parse(text); } catch { return; }
+        if (DEBUG && event) {
+          if (/output_audio\.delta$/.test(event.type)) {
+            if (++audioEvents % 50 === 1) log.log(`[realtime] ← ${event.type} ×${audioEvents} (${(event.delta || '').length} b64 chars)`);
+          } else {
+            const { delta, audio, ...rest } = event;
+            log.log(`[realtime] ← ${new Date().toISOString().slice(11, 23)} ${JSON.stringify(rest).slice(0, 400)}${delta ? ` delta=${JSON.stringify(delta)}` : ''}`);
+          }
+        }
         if (!tools || !event) return;
         if (event.type === 'response.function_call_arguments.done') void runTool(event);
         // GPT-Live wraps the backend's Responses stream; a finished function call is inside

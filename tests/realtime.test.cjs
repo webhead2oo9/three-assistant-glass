@@ -40,6 +40,7 @@ async function harness(settings = {}) {
         destroy() { audio.destroyed = true; },
       };
     },
+    decodePcm16: pcm.decodePcm16,
     encodePcm16: pcm.encodePcm16,
     pcmLevel: pcm.pcmLevel,
   };
@@ -58,7 +59,7 @@ async function harness(settings = {}) {
   });
   const assistant = module.createRealtimeAssistant({ llmFirstMessage: 'Hi there!', ...settings }, ui);
   assistants.push(assistant);
-  return { assistant, sockets, audio, ui, module };
+  return { assistant, sockets, audio, ui, module, module_pcm: pcm };
 }
 
 async function started(h) {
@@ -235,7 +236,7 @@ test('a failed first connection rejects start with the server\'s reason; a later
   later.assistant.stop();
 });
 
-test('GPT-Live: hands over the transcript on open, starts on session.started, greets through appended instructions and uses the Live event names', async () => {
+test('GPT-Live: hands over the transcript on open, starts on session.started, skips the greeting and uses the Live event names', async () => {
   const h = await harness({ realtimeProvider: 'live' });
   const starting = h.assistant.start();
   await tick();
@@ -249,10 +250,8 @@ test('GPT-Live: hands over the transcript on open, starts on session.started, gr
   socket.receive({ type: 'session.started', session: { id: 'live_1' } });
   await starting;
   const types = socket.sent.map((f) => f.type);
-  assert.deepEqual(types, ['session.history', 'session.thinking.append', 'session.input_audio.append', 'session.instructions.append']);
+  assert.deepEqual(types, ['session.history', 'session.thinking.append', 'session.input_audio.append']); // no greeting on Live
   assert.deepEqual(socket.sent[1], { type: 'session.thinking.append', delegation_id: null, content: 'Clipboard: hello' });
-  assert.match(socket.sent[3].content, /saying exactly "Hi there!"/);
-  assert.equal(socket.sent[3].delegation_id, null);
   h.audio.hooks.onChunk(frame(1000));
   assert.equal(socket.sent.at(-1).type, 'session.input_audio.append');
   assert.equal(h.ui.statuses.at(-1), 'Listening…');
@@ -276,19 +275,29 @@ test('GPT-Live: a reply is inferred from the flow of output and ends after a gap
 
   socket.receive({ type: 'session.delegation.created', delegation: { id: 'd1', target: 'responses' } });
   assert.equal(h.ui.statuses.at(-1), 'Thinking…');
-  socket.receive({ type: 'session.output_audio.delta', delta: 'AAAA' });
-  socket.receive({ type: 'session.output_transcript.delta', delta: 'It is noon.', start_ms: 2000, end_ms: 3000 });
-  assert.deepEqual(h.audio.played, ['AAAA']);
+  const silence = h.module_pcm.encodePcm16(frame(0)), voice = h.module_pcm.encodePcm16(frame(8000));
+  socket.receive({ type: 'session.output_audio.delta', delta: silence }); // the stream carries silence while listening
+  assert.deepEqual(h.audio.played, [silence]);
+  assert.equal(h.ui.statuses.at(-1), 'Thinking…');
+  socket.receive({ type: 'session.output_audio.delta', delta: voice });
+  socket.receive({ type: 'session.output_transcript.delta', delta: 'It is', start_ms: 2000, end_ms: 2400 });
+  socket.receive({ type: 'session.output_transcript.delta', delta: 'noon.', start_ms: 2500, end_ms: 3000 }); // a pause → a space
   assert.equal(h.ui.statuses.at(-1), 'Speaking…');
   // A backchannel while the character talks does not replace the caption
   socket.receive({ type: 'session.input_transcript.delta', delta: 'mm-hm', start_ms: 2500, end_ms: 2700 });
-  h.audio.playedSeconds = 1;
+  h.audio.playedSeconds = 2; // the silent second, then one second of the reply
   await sleep(SETTLE_MS);
   assert.equal(h.ui.texts.at(-1), 'It is noon.');
+  // Output resumes after the user spoke: a new reply, not a continuation
+  socket.receive({ type: 'session.output_audio.delta', delta: voice });
+  socket.receive({ type: 'session.output_transcript.delta', delta: 'Anything else?', start_ms: 3100, end_ms: 3800 });
+  h.audio.playedSeconds = 4;
+  await sleep(SETTLE_MS);
+  assert.equal(h.ui.texts.at(-1), 'Anything else?');
   h.audio.playing = 0;
   h.audio.hooks.onPlaybackEnd();
   assert.equal(h.ui.statuses.at(-1), 'Speaking…'); // output may still be coming
-  await sleep(900);                                 // …but it has stopped: the reply is over
+  await sleep(2100);                                // …but it has stopped: the reply is over
   assert.equal(h.ui.statuses.at(-1), 'Listening…');
 
   await sleep(350);                                 // idle → hang up
@@ -301,6 +310,7 @@ test('GPT-Live: a reply is inferred from the flow of output and ends after a gap
     { role: 'user', text: 'What time is it?' },
     { role: 'assistant', text: 'It is noon.' },
     { role: 'user', text: 'mm-hm' },
+    { role: 'assistant', text: 'Anything else?' },
   ] });
   resumed.receive({ type: 'session.started', session: {} });
   assert.ok(resumed.sent.slice(1).every((f) => f.type === 'session.input_audio.append'));

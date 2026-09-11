@@ -9,6 +9,8 @@
   "dragDropSupport": false,
   "vrmDebug": false,
   "animationPicker": false,
+  "mouthGain": 1.5,
+  "mouthCurve": 0.6,
   "characterName": "AvatarSample_A",
   "idleAnimation": "idleFemale.fbx",
   "assistantID": "",

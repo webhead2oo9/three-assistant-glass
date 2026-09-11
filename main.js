@@ -95,6 +95,8 @@ function checkSettingsChanges() {
           customAssistant?.setAutomaticExpressions?.(newSettings[key] === true);
         }
       }
+      // So do the lip sync sliders, which are tuned while the character talks
+      for (const key of ['mouthGain', 'mouthCurve']) currentSettings[key] = newSettings[key];
       if (JSON.stringify(newSettings) !== JSON.stringify(currentSettings)) {
         console.log('Settings have changed. Reloading page...');
         location.reload();
@@ -594,6 +596,19 @@ updateVrmNameDisplay();
 // animate
 const clock = new THREE.Clock();
 
+// Speech loudness comes in as RMS, which is small (roughly 0.05-0.3 for
+// ordinary speech even after the analysers' gain), so a linear mapping barely
+// parts the lips. A curve opens the mouth wide on normal speech, and the
+// release is eased so it doesn't snap shut between syllables.
+let mouthOpen = 0;
+function driveMouth(level, deltaTime) {
+  const gain = Number(currentSettings.mouthGain) || 1.5;   // Settings → Features → Lip sync
+  const curve = Number(currentSettings.mouthCurve) || 0.6;
+  const target = Math.min(1, Math.pow(Math.max(0, level), curve) * gain);
+  mouthOpen = target >= mouthOpen ? target : Math.max(target, mouthOpen - deltaTime * 6);
+  currentVrm.expressionManager.setValue('aa', mouthOpen);
+}
+
 function updateBlink(deltaTime) {
     if (!currentVrm) return;
 
@@ -633,9 +648,7 @@ function animate() {
 
   if (currentVrm) {
     updateBlink(deltaTime);
-    if (customAssistant) {
-      currentVrm.expressionManager.setValue('aa', customAssistant.mouthLevel());
-    }
+    if (customAssistant) driveMouth(customAssistant.mouthLevel(), deltaTime);
     characterExpressions.update(deltaTime);
     currentVrm.update(deltaTime);
   }
@@ -785,11 +798,7 @@ async function initializeVapi() {
   });
 
   vapi.on('volume-level', (volume) => {
-    console.log('Volume level:', volume);
-    if (currentVrm) {
-      // Map the volume (0-1) to the 'aa' expression (0-1)
-      currentVrm.expressionManager.setValue('aa', volume);
-    }
+    if (currentVrm) driveMouth(volume, 0.1); // Vapi reports about ten times a second
   });
 
   vapi.on('error', (error) => {
@@ -948,6 +957,7 @@ function stopCustomAssistant() {
   customAssistant?.stop();
   customAssistant = null;
   setAssistantStatus('');
+  mouthOpen = 0;
   if (currentVrm) {
     currentVrm.expressionManager.setValue('aa', 0);
   }

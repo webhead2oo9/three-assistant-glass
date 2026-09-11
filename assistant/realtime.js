@@ -13,10 +13,13 @@
 // so the model keeps its context.
 //
 // GPT-Live is full duplex and has no turn events: audio and transcript simply
-// stream while the model talks. A reply is taken to begin with the first
-// output after quiet and to end once the output has stopped for a moment.
+// stream while the model talks. Reply boundaries are inferred: a new reply
+// begins when output resumes after the user spoke, or after a gap on the
+// transcript's own timeline; it ends once the transcript has stopped for a
+// moment. "Speaking" follows actual voice in the output audio, since the
+// stream may carry silence.
 
-import { createRealtimeAudio, encodePcm16, pcmLevel } from './realtime-audio.js';
+import { createRealtimeAudio, decodePcm16, encodePcm16, pcmLevel } from './realtime-audio.js';
 import { createAutomaticExpressions } from './automatic-expressions.js';
 
 const TEXT_UPDATE_MS = 80;
@@ -29,8 +32,11 @@ const DEFAULT_CHARS_PER_SECOND = 15; // how fast the transcript is spoken; recal
 const MIN_CHARS_PER_SECOND = 8;
 const MAX_CHARS_PER_SECOND = 30;
 const MAX_REPLAY = 40;           // transcript turns replayed when a provider can't resume
-const LIVE_REPLY_GAP_MS = 800;   // GPT-Live: output silent this long → the reply is over
+const LIVE_REPLY_GAP_MS = 2000;  // GPT-Live: no transcript for this long (wall clock) → the reply is over; pauses inside a reply reach 1.2 s
+const LIVE_TURN_GAP_MS = 2000;   // GPT-Live: this much silence on the transcript timeline → a new reply
+const LIVE_VOICE_GAP_MS = 600;   // GPT-Live: no voiced audio for this long → the character has stopped talking
 const LIVE_USER_GAP_MS = 1200;   // GPT-Live: user transcript quiet this long → the utterance is over
+const LIVE_VOICE_LEVEL = 0.01;   // RMS below which an output chunk is taken as silence
 const IDLE_STATUS = 'Idle — say something to reconnect';
 
 // Seconds of silence before the upstream is hung up; 0 keeps it open
@@ -95,8 +101,11 @@ export function createRealtimeAssistant(settings, ui) {
   const transcript = [];     // { role, text } — replayed on reconnect when the provider can't resume
   let idleTimer = null;
   let startWait = null;
-  let liveReplyTimer = null; // GPT-Live: fires when the model has stopped producing output
+  let liveReplyTimer = null; // GPT-Live: fires when the model has stopped producing transcript
+  let liveVoiceTimer = null; // GPT-Live: fires when the output audio has gone quiet
   let liveUserTimer = null;  // GPT-Live: fires when the user's transcript has stopped
+  let liveOutEndMs = -1;     // GPT-Live: where the last output transcript fragment ended on the session timeline
+  let liveUserSince = false; // GPT-Live: the user has spoken since the last output fragment
 
   // Throttled text display
   let pendingText = null;
@@ -222,14 +231,7 @@ export function createRealtimeAssistant(settings, ui) {
   }
 
   function greet(text) {
-    if (live) {
-      // The Live prompting guide's way to make the model speak first
-      send({
-        type: 'session.instructions.append',
-        delegation_id: null,
-        content: `Speak first, before the user says anything: greet them by saying exactly "${text}", then listen.`,
-      });
-    } else if (provider === 'xai') {
+    if (provider === 'xai') {
       // A force message is spoken as-is with no model turn
       send({
         type: 'conversation.item.create',
@@ -273,7 +275,10 @@ export function createRealtimeAssistant(settings, ui) {
       startWait = null;
       wait.resolve();
     }
-    if (first && settings.llmFirstMessage) greet(settings.llmFirstMessage);
+    // GPT-Live has no way to make the model speak first: an appended instruction
+    // was only acted on once the user spoke, which read as a reply to them. So
+    // there is no greeting there; the character waits to be spoken to.
+    if (first && settings.llmFirstMessage && !live) greet(settings.llmFirstMessage);
     ui.onStatus('Listening…');
     armIdle();
   }
@@ -294,28 +299,42 @@ export function createRealtimeAssistant(settings, ui) {
       case 'session.started': // GPT-Live
         if (!ready) onReady();
         break;
-      case 'session.output_audio.delta': // GPT-Live: no turn events, so a reply is inferred from the flow
+      case 'session.output_audio.delta': { // GPT-Live: no turn events, so a reply is inferred from the flow
         if (!event.delta) break;
-        liveOutput();
+        const voiced = pcmLevel(decodePcm16(event.delta)) >= LIVE_VOICE_LEVEL; // the stream may carry silence
+        if (voiced && (!responding || liveUserSince)) liveNewReply(); // before queueing, so the caption is paced from this chunk
         audio?.play(event.delta);
+        if (!voiced) break;
+        clearTimeout(liveVoiceTimer);
+        liveVoiceTimer = setTimeout(liveVoiceDone, LIVE_VOICE_GAP_MS);
         if (!speaking) {
           speaking = true;
           ui.onSpeaker('Character');
           ui.onStatus('Speaking…');
         }
         break;
-      case 'session.output_transcript.delta':
+      }
+      case 'session.output_transcript.delta': {
         if (!event.delta) break;
-        liveOutput();
+        const start = Number(event.start_ms), end = Number(event.end_ms);
+        const gap = Number.isFinite(start) && liveOutEndMs >= 0 ? start - liveOutEndMs : 0;
+        if (!responding || liveUserSince || gap > LIVE_TURN_GAP_MS) liveNewReply();
+        // Fragments arrive without spaces; a pause between them is a word boundary
+        else if (gap > 0 && characterText && !/\s$/.test(characterText) && !/^\s/.test(event.delta)) characterText += ' ';
         characterText += event.delta;
+        if (Number.isFinite(end)) liveOutEndMs = end;
+        clearTimeout(liveReplyTimer);
+        liveReplyTimer = setTimeout(liveReplyDone, LIVE_REPLY_GAP_MS);
         expressions.transcript(characterText, newTurn);
         newTurn = false;
         break;
+      }
       case 'session.input_transcript.delta':
         // Full duplex: the user may talk over the model, so this is not treated
         // as an interruption; the model decides whether to yield.
         if (!event.delta) break;
         userText += event.delta;
+        liveUserSince = true;
         if (!speaking) { ui.onSpeaker('User'); showText(userText); } // a backchannel shouldn't replace the caption
         clearIdle();
         clearTimeout(liveUserTimer);
@@ -384,18 +403,17 @@ export function createRealtimeAssistant(settings, ui) {
 
   // ─── GPT-Live turn inference ────────────────────────────────────────────────
 
-  // Output (audio or transcript) is flowing: a reply has begun, or continues
-  function liveOutput() {
-    if (!responding) {
-      responding = true;
-      interrupted = false;
-      newTurn = true;
-      beginReply();
-      clearIdle();
-      if (userText) liveUserDone(); // whatever the user said before the reply is one utterance
-    }
-    clearTimeout(liveReplyTimer);
-    liveReplyTimer = setTimeout(liveReplyDone, LIVE_REPLY_GAP_MS);
+  // A reply begins: the first voiced output, or output after the user spoke
+  function liveNewReply() {
+    if (responding && characterText === '') return; // already begun by its audio, text still to come
+    if (responding) remember('assistant', characterText); // the previous reply ran straight into this one
+    responding = true;
+    interrupted = false;
+    newTurn = true;
+    liveUserSince = false;
+    beginReply();
+    clearIdle();
+    if (userText) liveUserDone(); // whatever the user said before the reply is one utterance
   }
 
   function liveReplyDone() {
@@ -404,6 +422,14 @@ export function createRealtimeAssistant(settings, ui) {
     responding = false;
     remember('assistant', characterText);
     if (!speaking) { finishReveal(); onQuiet(); }
+  }
+
+  function liveVoiceDone() {
+    liveVoiceTimer = null;
+    if (!speaking) return;
+    speaking = false;
+    if (!responding) { finishReveal(); onQuiet(); }
+    else if (userText) { ui.onSpeaker('User'); showText(userText); }
   }
 
   function liveUserDone() {
@@ -417,8 +443,11 @@ export function createRealtimeAssistant(settings, ui) {
 
   function clearLiveTimers() {
     clearTimeout(liveReplyTimer);
+    clearTimeout(liveVoiceTimer);
     clearTimeout(liveUserTimer);
-    liveReplyTimer = liveUserTimer = null;
+    liveReplyTimer = liveVoiceTimer = liveUserTimer = null;
+    liveOutEndMs = -1;
+    liveUserSince = false;
   }
 
   function onUserSpeech() {

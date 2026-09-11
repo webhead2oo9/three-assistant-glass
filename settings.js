@@ -144,6 +144,13 @@ async function loadSettings() {
     // Load the assistant shortcut
     const shortcutInput = document.getElementById('assistantShortcut');
     shortcutInput.value = settings.assistantShortcut || '';
+
+    // Lip sync sliders show their value beside them
+    for (const [id, fallback] of [['mouthGain', 1.5], ['mouthCurve', 0.6]]) {
+        const input = document.getElementById(id);
+        input.value = Number.isFinite(Number(settings[id])) && settings[id] !== '' && settings[id] !== null ? settings[id] : fallback;
+        document.getElementById(`${id}Value`).textContent = Number(input.value).toFixed(id === 'mouthGain' ? 1 : 2);
+    }
 }
 
 // Function to save settings
@@ -326,6 +333,18 @@ document.getElementById('animationPickerToggle').addEventListener('change', (e) 
 document.getElementById('idleAnimationSelect').addEventListener('change', (e) => {
     saveSettings('idleAnimation', e.target.value);
 });
+
+// Lip sync: the readout follows the thumb; the value saves as it moves so the
+// character page, which applies it live, can be watched while adjusting.
+for (const id of ['mouthGain', 'mouthCurve']) {
+    const input = document.getElementById(id);
+    let saveTimer;
+    input.addEventListener('input', () => {
+        document.getElementById(`${id}Value`).textContent = Number(input.value).toFixed(id === 'mouthGain' ? 1 : 2);
+        clearTimeout(saveTimer);
+        saveTimer = setTimeout(() => saveSettings(id, Number(input.value)), 150);
+    });
+}
 
 // Add this function to handle file uploads
 async function uploadCharacterFiles(files) {
