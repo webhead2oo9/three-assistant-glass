@@ -87,7 +87,7 @@ Customizable 3D conversational AI character
 
 8. Go back to http://localhost:3000 and press **Start** to begin the assistant
 
-## Use a Custom Assistant (xAI, OpenAI or local)
+## Use a Custom Assistant (xAI, OpenAI, ElevenLabs or local)
 
 Instead of Vapi you can wire the character to your own model and voices. Everything goes through the local server, so API keys never reach the browser and local servers need no CORS setup.
 
@@ -95,8 +95,9 @@ Instead of Vapi you can wire the character to your own model and voices. Everyth
 2. Pick a quick-setup preset, or fill in the fields:
    - **xAI** — paste your key from [console.x.ai](https://console.x.ai/team/default/api-keys). Grok for chat, xAI speech-to-text and text-to-speech (voices `eve`, `ara`, `rex`, …). One key does everything.
    - **OpenAI** — any OpenAI-compatible endpoint: OpenAI itself, Groq, or a local server such as [speaches](https://github.com/speaches-ai/speaches) for Whisper + Kokoro
+   - **ElevenLabs** — pick it for speech-to-text (Scribe v2), text-to-speech, or both, with any language model. Paste a key from [elevenlabs.io](https://elevenlabs.io/app/settings/api-keys); once saved, the *Voice* list fills from your account (the field holds a voice id, and blank means the first premade voice). The default model is `eleven_flash_v2_5`, the fastest; `eleven_v3_conversational` is the expressive one.
    - **Ollama / LM Studio** — local model, with the browser doing speech-to-text (Chrome) and Kokoro doing text-to-speech in the browser. No keys, no cloud.
-3. Speech-to-text and text-to-speech default to the language model's URL and key; override them to mix providers (e.g. Ollama for chat, xAI for voice)
+3. Speech-to-text and text-to-speech default to the language model's URL and key; override them to mix providers (e.g. Ollama for chat, xAI for voice). ElevenLabs is the exception: it always uses its own key and endpoint
 4. Press **Start** and allow microphone access. Toggle *barge-in* off if the character keeps interrupting itself on a loud speaker setup.
 
 The system prompt can use `{{date}}`, `{{hour}}` and `{{timezone}}`; they're filled in on every request. The exact time is deliberately not a placeholder (it would break provider-side prompt caching) — the model gets it through a tool instead.
@@ -107,6 +108,7 @@ The system prompt can use `{{date}}`, `{{hour}}` and `{{timezone}}`; they're fil
 |---|---|---|---|
 | xAI | `POST /v1/stt` | `POST /v1/tts` | Cheapest hosted option; one key |
 | OpenAI-compatible | `/v1/audio/transcriptions` | `/v1/audio/speech` | OpenAI, Groq, speaches, Kokoro-FastAPI, LocalAI… |
+| ElevenLabs | `POST /v1/speech-to-text` (Scribe v2) | `POST /v1/text-to-speech/{voice_id}` | Own key; the best hosted voices, priced per character |
 | Browser | Chrome Web Speech | OS voices | Zero setup; Chrome sends audio to Google |
 | Kokoro | — | In-browser Kokoro-82M | Free and offline after a one-time ~90–330 MB download |
 
@@ -209,6 +211,19 @@ entitlement. An account/voice error is displayed in the app, with no automatic
 switch to an API-key provider. References: [Codex authentication](https://learn.chatgpt.com/docs/auth),
 [app-server](https://learn.chatgpt.com/docs/app-server), and the cloned repository's
 `codex-rs/app-server/README.md` for the experimental realtime methods.
+
+## Automatic expressions and the character expression model
+
+With **Automatic expressions** on (Settings → Assistant), the character's face follows what it is saying. Two local models can drive it, chosen under **Expression model**:
+
+- **Character model** (default): a small model trained specifically for this face in the sibling `character-expression-model` project. Roughly every 350 ms it reads the recent conversation, the spoken reply prefix and the current expression target, and decides whether to hold or to set up to two of the five VRM channels (happy, sad, angry, relaxed, surprised). It runs on the CPU in about 40 ms per step with ONNX Runtime and needs no download. The tokenizer ships in `models/character-expression/`; the 126 MB model file itself is not in git. Copy it from a trained run, for example `runs/final-robertabase-s1/student-int8.onnx` in that project, to `models/character-expression/expression-int8.onnx`.
+- **GoEmotions classifier**: the original 28-label text classifier (`SamLowe/roberta-base-go_emotions-onnx`), downloaded on first use and mapped onto the same channels.
+
+Decoding rules for the character model live in `assistant/expression-decoder.js`: hold when the hold probability is at least 0.9; otherwise decode the proposed weights. Faces snap to a 0.05 grid with a 0.15 floor, and a change is followed by a six-word dwell.
+
+Expressions advance with playback rather than incoming transcript events. Realtime uses the caption's audio clock; synthesized audio uses sentence duration; browser voices use native word boundaries when provided, with a clock estimate otherwise. Codex WebRTC uses observed output speech to pace its transcript. Without word timestamps these are estimates, so exact word alignment is not guaranteed.
+
+Interrupting a reply cancels its pending expression decisions, including late failures. After a reply ends, the final expression is held for two seconds and eases to neutral over 1.5 seconds; a new reply cancels that settling. Saving settings keeps the workers available while any assistant's automatic expressions remain enabled.
 
 ## View on a Looking Glass Display
 

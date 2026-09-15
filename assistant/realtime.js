@@ -21,6 +21,8 @@
 
 import { createRealtimeAudio, decodePcm16, encodePcm16, pcmLevel } from './realtime-audio.js';
 import { createAutomaticExpressions } from './automatic-expressions.js';
+import { spokenPrefix } from './speech-progress.js';
+export { spokenPrefix } from './speech-progress.js';
 
 const TEXT_UPDATE_MS = 80;
 const RING_FRAMES = 50;          // ~1 s of 20 ms frames kept while not connected
@@ -45,17 +47,6 @@ export function idleSeconds(settings) {
   if (value === '' || value === null || value === undefined) return DEFAULT_IDLE_SECONDS;
   const seconds = Number(value);
   return Number.isFinite(seconds) && seconds >= 0 ? seconds : DEFAULT_IDLE_SECONDS;
-}
-
-// The transcript arrives well ahead of the audio. Show only as much as has
-// been spoken: `seconds` of playback into this reply at `rate` chars/s, cut
-// back to a word boundary so the caption doesn't grow letter by letter.
-export function spokenPrefix(text, seconds, rate) {
-  const chars = Math.floor(Math.max(0, seconds) * rate);
-  if (chars >= text.length) return text;
-  if (chars <= 0) return '';
-  const boundary = text.lastIndexOf(' ', chars);
-  return boundary > 0 ? text.slice(0, boundary) : '';
 }
 
 // Providers put a finished transcript in different places
@@ -92,6 +83,7 @@ export function createRealtimeAssistant(settings, ui) {
   let shownText = '';        // the part of it revealed so far
   let userText = '';
   let replyStart = 0;        // timeline position (seconds) where this reply's audio begins
+  let lastVoiceEnd = 0, replyFinished = true;
   let charsPerSecond = DEFAULT_CHARS_PER_SECOND;
   let revealTimer = null;
   let loudFrames = 0;
@@ -130,20 +122,27 @@ export function createRealtimeAssistant(settings, ui) {
 
   // A new reply's text starts revealing once playback reaches its audio
   function beginReply(text = '') {
+    expressions.interrupt?.();
+    newTurn = true; replyFinished = false;
     characterText = text;
     shownText = '';
     replyStart = audio?.timeline().received ?? 0;
+    lastVoiceEnd = replyStart;
     startReveal();
   }
 
   function reveal() {
-    if (!audio || !characterText) return;
+    if (!audio || interrupted) return;
+    if (finishPlayback()) return;
+    if (!characterText) return;
     const { played } = audio.timeline();
     const prefix = spokenPrefix(characterText, played - replyStart, charsPerSecond);
     if (prefix.length <= shownText.length) return; // nothing new spoken yet; keep what's on screen
     shownText = prefix;
     ui.onSpeaker('Character');
     showText(shownText);
+    expressions.transcript(shownText, newTurn);
+    newTurn = false;
   }
 
   function startReveal() {
@@ -158,8 +157,9 @@ export function createRealtimeAssistant(settings, ui) {
   // The reply has been heard in full: show all of it and learn how fast it was spoken
   function finishReveal() {
     stopReveal();
-    if (!characterText) return;
+    if (!characterText || interrupted) return;
     const seconds = (audio?.timeline().received ?? 0) - replyStart;
+    if (seconds <= 0) return;
     if (seconds >= 1 && characterText.length >= 20) {
       const measured = characterText.length / seconds;
       charsPerSecond = Math.min(MAX_CHARS_PER_SECOND, Math.max(MIN_CHARS_PER_SECOND, (charsPerSecond + measured) / 2));
@@ -168,7 +168,20 @@ export function createRealtimeAssistant(settings, ui) {
       shownText = characterText;
       ui.onSpeaker('Character');
       showText(shownText);
+      expressions.transcript(shownText, newTurn);
+      newTurn = false;
     }
+  }
+
+  function finishPlayback(completeWithoutAudio = false) {
+    if (replyFinished || responding || interrupted || !audio) return false;
+    if (!completeWithoutAudio && audio.timeline().received <= replyStart) return false;
+    // GPT-Live continuously queues silence: wait for the last voiced chunk,
+    // rather than for an empty audio queue or a gap in network delivery.
+    if (live ? audio.timeline().played < lastVoiceEnd : audio.isPlaying()) return false;
+    replyFinished = true;
+    finishReveal(); expressions.endReply?.(); onQuiet();
+    return true;
   }
 
   // ─── Connection ─────────────────────────────────────────────────────────────
@@ -213,6 +226,7 @@ export function createRealtimeAssistant(settings, ui) {
       // A resume the upstream refused (expired id) should not be retried forever
       if (!wasReady) conversationId = null;
       audio?.stopPlayback();
+      expressions.interrupt?.();
       goDormant('Disconnected — say something to reconnect');
     };
     socket.onerror = () => { /* close follows */ };
@@ -305,6 +319,7 @@ export function createRealtimeAssistant(settings, ui) {
         if (voiced && (!responding || liveUserSince)) liveNewReply(); // before queueing, so the caption is paced from this chunk
         audio?.play(event.delta);
         if (!voiced) break;
+        lastVoiceEnd = audio?.timeline().received ?? lastVoiceEnd;
         clearTimeout(liveVoiceTimer);
         liveVoiceTimer = setTimeout(liveVoiceDone, LIVE_VOICE_GAP_MS);
         if (!speaking) {
@@ -325,8 +340,6 @@ export function createRealtimeAssistant(settings, ui) {
         if (Number.isFinite(end)) liveOutEndMs = end;
         clearTimeout(liveReplyTimer);
         liveReplyTimer = setTimeout(liveReplyDone, LIVE_REPLY_GAP_MS);
-        expressions.transcript(characterText, newTurn);
-        newTurn = false;
         break;
       }
       case 'session.input_transcript.delta':
@@ -334,6 +347,7 @@ export function createRealtimeAssistant(settings, ui) {
         // as an interruption; the model decides whether to yield.
         if (!event.delta) break;
         userText += event.delta;
+        expressions.setContext?.([{ role: 'user', text: userText }]);
         liveUserSince = true;
         if (!speaking) { ui.onSpeaker('User'); showText(userText); } // a backchannel shouldn't replace the caption
         clearIdle();
@@ -350,12 +364,12 @@ export function createRealtimeAssistant(settings, ui) {
         onUserSpeech();
         break;
       case 'conversation.item.input_audio_transcription.delta': // OpenAI: pieces
-        if (event.delta) { userText += event.delta; ui.onSpeaker('User'); showText(userText); }
+        if (event.delta) { userText += event.delta; ui.onSpeaker('User'); showText(userText); expressions.setContext?.([{ role: 'user', text: userText }]); }
         break;
       case 'conversation.item.input_audio_transcription.updated': // xAI: cumulative
       case 'conversation.item.input_audio_transcription.completed': {
         const text = transcriptOf(event);
-        if (text) { userText = text; ui.onSpeaker('User'); showText(text); }
+        if (text) { userText = text; ui.onSpeaker('User'); showText(text); expressions.setContext?.([{ role: 'user', text }]); }
         if (event.type.endsWith('completed')) remember('user', text);
         break;
       }
@@ -379,13 +393,11 @@ export function createRealtimeAssistant(settings, ui) {
       case 'response.output_audio_transcript.delta':
         if (interrupted || !event.delta) break;
         characterText += event.delta; // revealed by the timer as the audio plays
-        expressions.transcript(characterText, newTurn);
-        newTurn = false;
         break;
       case 'response.done':
         responding = false;
         remember('assistant', characterText);
-        if (!speaking) { finishReveal(); onQuiet(); }
+        finishPlayback(true);
         break;
       case 'tool':
         ui.onStatus(event.tool?.label || 'Working…');
@@ -421,14 +433,14 @@ export function createRealtimeAssistant(settings, ui) {
     if (!responding) return;
     responding = false;
     remember('assistant', characterText);
-    if (!speaking) { finishReveal(); onQuiet(); }
+    finishPlayback(true);
   }
 
   function liveVoiceDone() {
     liveVoiceTimer = null;
     if (!speaking) return;
     speaking = false;
-    if (!responding) { finishReveal(); onQuiet(); }
+    if (!responding) finishPlayback();
     else if (userText) { ui.onSpeaker('User'); showText(userText); }
   }
 
@@ -454,6 +466,7 @@ export function createRealtimeAssistant(settings, ui) {
     interrupted = responding || speaking;
     stopReveal(); // the caption keeps what was actually heard
     audio?.stopPlayback();
+    expressions.interrupt?.();
     speaking = false;
     userText = '';
     clearIdle();
@@ -470,7 +483,7 @@ export function createRealtimeAssistant(settings, ui) {
 
   function onPlaybackEnd() {
     speaking = false;
-    if (!responding) { finishReveal(); onQuiet(); }
+    finishPlayback();
   }
 
   function onChunk(frame) {

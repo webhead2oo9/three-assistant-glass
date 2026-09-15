@@ -411,9 +411,9 @@ const ASSISTANT_TEXT_FIELDS = [
     'ttsBaseUrl', 'ttsApiKey', 'ttsModel', 'ttsVoice', 'ttsSpeed',
     'assistantLanguage',
     'realtimeBaseUrl', 'realtimeApiKey', 'realtimeModel', 'realtimeVoice', 'realtimeIdleSeconds', 'liveBackendModel',
-    'codexInstructions', 'codexModel', 'codexWorkspace', 'codexTaskModel',
+    'codexInstructions', 'codexModel', 'codexWorkspace', 'codexTaskModel', 'expressionGain',
 ];
-const ASSISTANT_SELECTS = ['assistantProvider', 'assistantMode', 'realtimeProvider', 'sttProvider', 'ttsProvider', 'codexVoice'];
+const ASSISTANT_SELECTS = ['assistantProvider', 'assistantMode', 'realtimeProvider', 'sttProvider', 'ttsProvider', 'codexVoice', 'expressionModel'];
 const ASSISTANT_TOGGLES = ['bargeIn', 'llmStream', 'llmTools', 'llmAutoExpressions', 'realtimeAutoExpressions', 'codexAutoExpressions'];
 
 const ASSISTANT_PRESETS = {
@@ -469,6 +469,14 @@ function setHidden(selector, hidden) {
     document.querySelectorAll(selector).forEach(el => { el.hidden = hidden; });
 }
 
+// The base URL and key of a speech leg default to the language model's, except
+// for ElevenLabs, which has its own endpoint and its own kind of key.
+function describeEndpoint(kind, provider) {
+    const elevenlabs = provider === 'elevenlabs';
+    document.getElementById(`${kind}BaseUrl`).placeholder = elevenlabs ? 'https://api.elevenlabs.io/v1' : 'Same as language model';
+    document.getElementById(`${kind}ApiKey`).placeholder = elevenlabs ? 'ElevenLabs key (sk_…)' : 'Same as language model';
+}
+
 function updateAssistantUI() {
     const provider = document.getElementById('assistantProvider').value;
     document.getElementById('vapiAssistantSection').hidden = provider !== 'vapi';
@@ -490,15 +498,23 @@ function updateAssistantUI() {
 
     const stt = document.getElementById('sttProvider').value;
     setHidden('.stt-server-only', stt === 'browser');
-    setHidden('.stt-openai-only', stt !== 'openai');
+    setHidden('.stt-model-only', !['openai', 'elevenlabs'].includes(stt));
     setHidden('.stt-browser-only', stt !== 'browser');
+    setHidden('.stt-elevenlabs-only', stt !== 'elevenlabs');
+    describeEndpoint('stt', stt);
+    document.getElementById('sttModel').placeholder = stt === 'elevenlabs' ? 'scribe_v2' : 'whisper-1';
 
     const tts = document.getElementById('ttsProvider').value;
     setHidden('.tts-server-only', tts === 'kokoro' || tts === 'browser');
-    setHidden('.tts-openai-only', tts !== 'openai');
+    setHidden('.tts-model-only', !['openai', 'elevenlabs'].includes(tts));
     setHidden('.tts-kokoro-only', tts !== 'kokoro');
+    setHidden('.tts-elevenlabs-only', tts !== 'elevenlabs');
+    describeEndpoint('tts', tts);
+    document.getElementById('ttsModel').placeholder = tts === 'elevenlabs' ? 'eleven_flash_v2_5' : 'tts-1';
     document.getElementById('ttsVoice').placeholder =
-        { xai: 'eve', openai: 'alloy', kokoro: 'af_heart', browser: 'System default' }[tts] || '';
+        { xai: 'eve', openai: 'alloy', elevenlabs: 'First premade voice', kokoro: 'af_heart', browser: 'System default' }[tts] || '';
+    document.getElementById('ttsSpeedRange').textContent =
+        { elevenlabs: '0.7 to 1.2', openai: '0.25 to 4' }[tts] || '0.7 to 1.5';
     if (provider === 'custom' && !realtime) void refreshVoiceSuggestions();
 }
 
@@ -521,13 +537,15 @@ function noteSuggestions(id, count, what) {
     input.classList.toggle('has-suggestions', count > 0);
 }
 
-async function xaiVoices() {
+// The server fetches the list from whichever provider publishes one (xAI,
+// ElevenLabs) and normalises it to {id, name, language}.
+async function fetchedVoices() {
     try {
         const { voices = [] } = await fetch('/api/assistant/voices').then(r => r.json());
         // xAI's display name is usually just the id capitalised; only show it when it says more
         return voices.map(v => ({ value: v.id, label: [v.name.toLowerCase() !== v.id.toLowerCase() ? v.name : '', v.language].filter(Boolean).join(' · ') }));
     } catch (err) {
-        console.warn('[voices] no xAI voice list:', err.message);
+        console.warn('[voices] no voice list:', err.message);
         return [];
     }
 }
@@ -546,30 +564,31 @@ async function refreshSpeechSuggestions() {
 
     // Only an endpoint has a catalogue to advertise; the in-browser providers
     // carry their own fixed voice lists.
-    const stt = sttProvider === 'openai' ? await fetchModels('stt') : [];
+    const stt = ['openai', 'elevenlabs'].includes(sttProvider) ? await fetchModels('stt') : [];
     noteSuggestions('sttModel', fillDatalist(
         document.getElementById('sttModelOptions'),
         sttModels(stt).map(m => ({ value: m.id, label: describeLanguages(m.language) })),
     ), 'models');
 
-    ttsCatalog = ttsProvider === 'openai' ? await fetchModels('tts') : [];
+    ttsCatalog = ['openai', 'elevenlabs'].includes(ttsProvider) ? await fetchModels('tts') : [];
     noteSuggestions('ttsModel', fillDatalist(
         document.getElementById('ttsModelOptions'),
-        ttsModels(ttsCatalog).map(m => ({ value: m.id, label: m.sample_rate ? `${m.sample_rate} Hz` : '' })),
+        ttsModels(ttsCatalog).map(m => ({ value: m.id, label: m.sample_rate ? `${m.sample_rate} Hz` : describeLanguages(m.language) })),
     ), 'models');
 
     await refreshVoiceSuggestions();
 }
 
-// Voices depend on the selected TTS provider and model: xAI publishes a list,
-// Kokoro carries a dozen, OpenAI's are documented per model, and the OS
-// exposes whatever is installed. Reruns whenever the provider or model changes.
+// Voices depend on the selected TTS provider and model: xAI and ElevenLabs
+// publish a list, Kokoro carries a dozen, OpenAI's are documented per model,
+// and the OS exposes whatever is installed. Reruns whenever the provider or
+// model changes.
 async function refreshVoiceSuggestions() {
     const list = document.getElementById('ttsVoiceOptions');
     const provider = document.getElementById('ttsProvider').value;
     let entries;
-    if (provider === 'xai') {
-        entries = await xaiVoices();
+    if (provider === 'xai' || provider === 'elevenlabs') {
+        entries = await fetchedVoices();
     } else if (provider === 'browser') {
         // getVoices() is empty until the OS list has loaded; the voiceschanged
         // event fires once it has, and re-entering here fills the list.
@@ -591,7 +610,7 @@ async function refreshRealtimeVoiceSuggestions() {
     const provider = document.getElementById('realtimeProvider').value;
     const entries = provider === 'openai' ? STATIC_VOICES['openai-realtime'].map(v => ({ value: v, label: '' }))
         : provider === 'live' ? STATIC_VOICES.live.map(v => ({ value: v, label: '' }))
-        : await xaiVoices();
+        : await fetchedVoices();
     noteSuggestions('realtimeVoice', fillDatalist(document.getElementById('realtimeVoiceOptions'), entries), 'voices');
 }
 
@@ -625,6 +644,8 @@ async function initAssistantTab() {
     document.getElementById('llmAutoExpressions').checked = settings.llmAutoExpressions === true;
     document.getElementById('realtimeAutoExpressions').checked = settings.realtimeAutoExpressions === true;
     document.getElementById('codexAutoExpressions').checked = settings.codexAutoExpressions === true;
+    document.getElementById('expressionModel').value = settings.expressionModel === 'goemotions' ? 'goemotions' : 'character';
+    document.getElementById('expressionGain').value = settings.expressionGain ?? '1';
     updateAssistantUI();
 
     ASSISTANT_TEXT_FIELDS.forEach(id => {

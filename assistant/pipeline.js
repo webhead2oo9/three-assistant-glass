@@ -46,6 +46,7 @@ export function createAssistant(settings, ui) {
   let session = 0;
   let running = false;
   let spokenText = '';          // what's been said aloud for the current reply
+  let sentenceBase = '';
   let spokenLog = [];           // { text, at } — for echo detection
   let heardWhileSpeaking = false;
 
@@ -74,6 +75,7 @@ export function createAssistant(settings, ui) {
   }
 
   function cancelReply() {
+    expressions.interrupt?.();
     if (reply) {
       const interrupted = reply;
       finishReply(interrupted);
@@ -107,6 +109,7 @@ export function createAssistant(settings, ui) {
     ui.onSpeaker('User');
     showText(text);
     history.push({ role: 'user', content: text });
+    expressions.setContext?.(history.filter(m => m.role !== 'system').slice(-6).map(m => ({ role: m.role, text: m.content })));
     trimHistory();
     await respond();
   }
@@ -140,6 +143,7 @@ export function createAssistant(settings, ui) {
       if (reply === turn) {
         finishReply(turn);
         reply = null;
+        if (!speaker?.isBusy()) expressions.endReply?.();
       }
     }
   }
@@ -165,8 +169,11 @@ export function createAssistant(settings, ui) {
         },
         onSentence: (sentence) => {
           spokenLog.push({ text: sentence, at: Date.now() });
+          sentenceBase = spokenText;
+        },
+        onProgress: (prefix) => {
           const first = spokenText === '';
-          spokenText = spokenText ? `${spokenText} ${sentence}` : sentence;
+          spokenText = sentenceBase ? `${sentenceBase} ${prefix}` : prefix;
           ui.onSpeaker('Character');
           showText(spokenText);
           // Expressions follow what has actually been spoken, so the face
@@ -175,7 +182,7 @@ export function createAssistant(settings, ui) {
         },
         onEnd: () => {
           if (!bargeIn) stt?.setSuppressed(false);
-          if (running && !reply) ui.onStatus('Listening…');
+          if (running && !reply) { ui.onStatus('Listening…'); expressions.endReply?.(); }
         },
         onStatus: ui.onStatus,
         onError: (err) => { // a failed sentence shouldn't wipe the conversation

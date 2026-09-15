@@ -2,14 +2,15 @@
 // time. Synthesis for later sentences runs while earlier ones play, so the
 // character starts talking after the first sentence rather than the whole
 // reply. Surface: enqueue(text), cancel(), isBusy(), isSpeaking(), mouthLevel(), destroy().
-// hooks.onSentence(text) fires as each sentence starts playing so the UI can
-// show text in sync with the audio.
+// hooks.onSentence(text) starts a sentence; onProgress(prefix) reveals only its
+// spoken portion, using native boundaries or an audio-duration estimate.
 //
 //   xai / openai → server proxy (/api/assistant/tts) returns an audio file
 //   kokoro       → in-browser Kokoro-82M
 //   browser      → speechSynthesis (OS voices; no audio graph, mouth is faked)
 
 import { createKokoroSynth } from './kokoro.js';
+import { trackSpeechProgress } from './speech-progress.js';
 
 export function createSpeaker(settings, hooks) {
   const provider = settings.ttsProvider || 'xai';
@@ -62,14 +63,20 @@ function bufferSpeaker(synth, hooks) {
   let generation = 0;     // bumped on cancel so stale synth results are dropped
   let synthesisAbort = new AbortController();
   let destroyed = false;
+  let progress = null;
 
-  function play(buffer) {
+  function play(buffer, text) {
     return new Promise((resolve) => {
       const source = audioCtx.createBufferSource();
       source.buffer = buffer;
       source.connect(analyser);
+      const startedAt = audioCtx.currentTime;
+      const advancing = trackSpeechProgress(text, () => audioCtx.currentTime - startedAt,
+        text.length / buffer.duration, hooks.onProgress);
+      progress = advancing;
       source.onended = () => {
-        if (playing === source) playing = null;
+        if (playing === source) { advancing.finish(); playing = null; progress = null; }
+        else advancing.cancel();
         resolve();
       };
       playing = source;
@@ -88,7 +95,7 @@ function bufferSpeaker(synth, hooks) {
         if (gen !== generation) return; // a new consumer owns the queue after cancel
         if (!speaking) { speaking = true; hooks.onStart?.(); }
         hooks.onSentence?.(item.text);    // show the text even if synthesis failed
-        if (buffer) await play(buffer);
+        if (buffer) await play(buffer, item.text);
       }
     } finally {
       if (gen === generation) {
@@ -112,6 +119,7 @@ function bufferSpeaker(synth, hooks) {
     },
     cancel() {
       generation++;
+      progress?.cancel(); progress = null;
       synthesisAbort.abort();
       synthesisAbort = new AbortController();
       queue.length = 0;
@@ -149,6 +157,7 @@ function browserSpeaker(settings, hooks) {
   const queue = [];
   let current = null;
   let speaking = false;
+  let progress = null;
 
   function pump() {
     if (current || queue.length === 0) return;
@@ -156,19 +165,31 @@ function browserSpeaker(settings, hooks) {
     const voice = speechSynthesis.getVoices().find((v) => v.name === settings.ttsVoice);
     if (voice) utterance.voice = voice;
     utterance.rate = Number(settings.ttsSpeed) || 1;
+    let startedAt = 0, pausedAt = null, pausedMs = 0;
     utterance.onstart = () => {
       if (current !== utterance) return;
       if (!speaking) { speaking = true; hooks.onStart?.(); }
       hooks.onSentence?.(utterance.text);
+      startedAt = performance.now();
+      progress = trackSpeechProgress(utterance.text,
+        () => ((pausedAt ?? performance.now()) - startedAt - pausedMs) / 1000,
+        15 * utterance.rate, hooks.onProgress);
     };
-    const done = () => {
+    utterance.onboundary = event => { if (current === utterance) progress?.boundary(event.charIndex); };
+    utterance.onpause = () => { if (current === utterance) pausedAt = performance.now(); };
+    utterance.onresume = () => {
+      if (current === utterance && pausedAt !== null) { pausedMs += performance.now() - pausedAt; pausedAt = null; }
+    };
+    const done = complete => {
       if (current !== utterance) return;
+      if (complete) progress?.finish(); else progress?.cancel();
+      progress = null;
       current = null;
       if (queue.length === 0 && speaking) { speaking = false; hooks.onEnd?.(); }
       pump();
     };
-    utterance.onend = done;
-    utterance.onerror = done;
+    utterance.onend = () => done(true);
+    utterance.onerror = () => done(false);
     current = utterance;
     speechSynthesis.speak(utterance);
   }
@@ -176,6 +197,7 @@ function browserSpeaker(settings, hooks) {
   return {
     enqueue(text) { queue.push(text); pump(); },
     cancel() {
+      progress?.cancel(); progress = null;
       queue.length = 0;
       current = null;
       speechSynthesis.cancel();

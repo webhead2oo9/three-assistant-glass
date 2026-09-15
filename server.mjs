@@ -1,4 +1,4 @@
-import { createEmotionService, createEmotionRouter } from './server/emotions.mjs';
+import { createEmotionService, createEmotionRouter, automaticExpressionsEnabled } from './server/emotions.mjs';
 import express from 'express';
 import path from 'path';
 import fs from 'fs/promises';
@@ -16,6 +16,7 @@ import { createChatRunner, UpstreamError } from './server/chat.mjs';
 import { createTools } from './server/tools.mjs';
 import { renderSystemMessages } from './server/prompt.mjs';
 import { createRealtimeBridge, realtimeConfig } from './server/realtime.mjs';
+import * as eleven from './server/elevenlabs.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -78,8 +79,8 @@ async function loadOrCreateSettings() {
 // Call this function before setting up routes
 await loadOrCreateSettings();
 
-const emotionService = createEmotionService();
-app.use('/api/emotions', createEmotionRouter(emotionService, () => settings));
+const expressionServices = { goemotions: createEmotionService('./emotion-worker.mjs'), character: createEmotionService('./expression-worker.mjs') };
+app.use('/api/emotions', createEmotionRouter(expressionServices, () => settings));
 const codexClient = new CodexClient();
 app.use('/api/codex', createCodexRouter(codexClient, { getSettings: () => settings }));
 
@@ -114,7 +115,7 @@ app.post('/api/settings', express.json(), (req, res, next) => {
       'characterName', 'assistantID', 'settingsIconToggle', 'assistantShortcut', 'mouthGain', 'mouthCurve',
       // Custom assistant (Settings → Assistant)
       'assistantProvider', 'assistantLanguage', 'bargeIn',
-      'llmBaseUrl', 'llmApiKey', 'llmModel', 'llmSystemPrompt', 'llmFirstMessage', 'llmStream', 'llmTools', 'llmAutoExpressions',
+      'llmBaseUrl', 'llmApiKey', 'llmModel', 'llmSystemPrompt', 'llmFirstMessage', 'llmStream', 'llmTools', 'llmAutoExpressions', 'expressionModel', 'expressionGain',
       'assistantMode', 'realtimeProvider', 'realtimeBaseUrl', 'realtimeApiKey', 'realtimeModel', 'realtimeVoice',
       'realtimeIdleSeconds', 'realtimeAutoExpressions', 'liveBackendModel',
       'sttProvider', 'sttBaseUrl', 'sttApiKey', 'sttModel',
@@ -130,7 +131,7 @@ app.post('/api/settings', express.json(), (req, res, next) => {
     
     await fs.writeFile(settingsPath, JSON.stringify(currentSettings, null, 2));
     settings = currentSettings;
-    if (settings.codexAutoExpressions !== true) emotionService.close();
+    if (!automaticExpressionsEnabled(settings)) { expressionServices.goemotions.close(); expressionServices.character.close(); }
     res.json({ success: true });
   } catch (error) {
     console.error('Error updating settings:', error);
@@ -206,12 +207,17 @@ function llmConfig() {
   };
 }
 
+// ElevenLabs is the exception to the LLM fallback: its key is its own (an xAI
+// or OpenAI key in the xi-api-key header is just a confusing 401) and so is
+// its endpoint. A base URL typed into the settings still wins.
 function audioConfig(kind) {
   const llm = llmConfig();
+  const provider = settings[`${kind}Provider`] || 'xai';
+  const elevenlabs = provider === 'elevenlabs';
   return {
-    provider: settings[`${kind}Provider`] || 'xai',
-    baseUrl: trimSlash(settings[`${kind}BaseUrl`] || llm.baseUrl),
-    apiKey: settings[`${kind}ApiKey`] || llm.apiKey,
+    provider,
+    baseUrl: trimSlash(settings[`${kind}BaseUrl`] || (elevenlabs ? eleven.ELEVENLABS_BASE_URL : llm.baseUrl)),
+    apiKey: settings[`${kind}ApiKey`] || (elevenlabs ? '' : llm.apiKey),
     model: settings[`${kind}Model`] || '',
     voice: settings.ttsVoice || '',
     speed: Number(settings.ttsSpeed) || 1,
@@ -223,10 +229,32 @@ function authHeaders(apiKey) {
   return apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
 }
 
-async function upstreamError(res, upstream) {
+async function upstreamError(res, upstream, describe = (body) => body) {
   const body = await upstream.text();
   console.error(`[assistant] upstream ${upstream.status}: ${body.slice(0, 500)}`);
-  res.status(upstream.status).type('text/plain').send(body);
+  res.status(upstream.status).type('text/plain').send(describe(body));
+}
+
+// The voice ElevenLabs speaks with when none is configured: the account's
+// first current premade voice, looked up once and remembered. The voices
+// route seeds the same cache, so a visit to the settings page pays for it.
+let elevenVoiceId = '';
+async function resolveElevenVoice(cfg) {
+  if (cfg.voice) return cfg.voice;
+  if (elevenVoiceId) return elevenVoiceId;
+  try {
+    const upstream = await fetch(`${cfg.baseUrl}/voices`, { headers: eleven.elevenHeaders(cfg.apiKey), signal: AbortSignal.timeout(8000) });
+    elevenVoiceId = eleven.defaultVoiceId(upstream.ok ? await upstream.json() : null);
+    console.log(`[assistant/tts] no ElevenLabs voice configured, using ${elevenVoiceId}`);
+  } catch (error) {
+    console.warn(`[assistant/tts] no ElevenLabs voice list: ${error.message}`);
+    elevenVoiceId = eleven.FALLBACK_VOICE_ID;
+  }
+  return elevenVoiceId;
+}
+
+function missingElevenKey(res, leg) {
+  return res.status(400).type('text/plain').send(`ElevenLabs API key required (Settings → Assistant → ${leg})`);
 }
 
 // One assistant turn. The browser always receives SSE in the OpenAI delta
@@ -280,8 +308,25 @@ app.post('/api/assistant/chat', express.json({ limit: '1mb' }), async (req, res)
 });
 
 // Transcribes a WAV body. xAI: POST /stt — OpenAI-compatible: POST /audio/transcriptions
+// — ElevenLabs: POST /speech-to-text (Scribe)
 app.post('/api/assistant/stt', express.raw({ type: ['audio/*', 'application/octet-stream'], limit: '25mb' }), async (req, res) => {
   const cfg = audioConfig('stt');
+  if (cfg.provider === 'elevenlabs') {
+    if (!cfg.apiKey) return missingElevenKey(res, 'Speech to text');
+    // Scribe rejects clips under 100 ms; a VAD misfire that short is silence
+    if (eleven.wavDurationMs(req.body) < 100) return res.json({ text: '' });
+    try {
+      const { url, headers, form } = eleven.sttRequest(cfg, req.body);
+      const upstream = await fetch(url, { method: 'POST', headers, body: form });
+      if (!upstream.ok) return upstreamError(res, upstream, eleven.describeError);
+      const result = await upstream.json();
+      return res.json({ text: result.text || '' });
+    } catch (error) {
+      console.error('[assistant/stt]', error);
+      return res.status(502).json({ error: error.message });
+    }
+  }
+
   const form = new FormData();
   let url;
   if (cfg.provider === 'openai') {
@@ -327,6 +372,13 @@ app.post('/api/assistant/tts', express.json(), async (req, res) => {
       if (!upstream.ok) return upstreamError(res, upstream);
       res.type(upstream.headers.get('content-type') || 'audio/wav');
       res.send(Buffer.from(await upstream.arrayBuffer()));
+    } else if (cfg.provider === 'elevenlabs') {
+      if (!cfg.apiKey) return missingElevenKey(res, 'Text to speech');
+      const { url, headers, body } = eleven.ttsRequest(cfg, text, await resolveElevenVoice(cfg));
+      const upstream = await fetch(url, { method: 'POST', headers, body });
+      if (!upstream.ok) return upstreamError(res, upstream, eleven.describeError);
+      res.type(upstream.headers.get('content-type') || 'audio/mpeg');
+      res.send(Buffer.from(await upstream.arrayBuffer()));
     } else {
       const upstream = await fetch(`${cfg.baseUrl}/tts`, {
         method: 'POST',
@@ -358,9 +410,23 @@ app.post('/api/assistant/tts', express.json(), async (req, res) => {
   }
 });
 
-// Voice list for the settings page (xAI only; other providers use fixed lists)
+// Voice list for the settings page (xAI and ElevenLabs publish one; the other
+// providers use fixed lists)
 app.get('/api/assistant/voices', async (req, res) => {
   const cfg = audioConfig('tts');
+  if (cfg.provider === 'elevenlabs') {
+    if (!cfg.apiKey) return res.json({ voices: [] });
+    try {
+      const upstream = await fetch(`${cfg.baseUrl}/voices`, { headers: eleven.elevenHeaders(cfg.apiKey), signal: AbortSignal.timeout(8000) });
+      if (!upstream.ok) return upstreamError(res, upstream, eleven.describeError);
+      const result = await upstream.json();
+      if (!cfg.voice) elevenVoiceId = eleven.defaultVoiceId(result);
+      return res.json({ voices: eleven.normalizeVoices(result) });
+    } catch (error) {
+      console.error('[assistant/voices]', error);
+      return res.status(502).json({ error: error.message });
+    }
+  }
   if (cfg.provider !== 'xai') return res.json({ voices: [] });
   try {
     const upstream = await fetch(`${cfg.baseUrl}/tts/voices`, { headers: authHeaders(cfg.apiKey) });
@@ -383,18 +449,27 @@ app.get('/api/assistant/models', async (req, res) => {
   const kind = String(req.query.for || 'llm');
   if (!['llm', 'stt', 'tts'].includes(kind)) return res.status(400).json({ error: 'for must be llm, stt or tts' });
   const cfg = kind === 'llm' ? llmConfig() : audioConfig(kind);
-  if (kind !== 'llm' && !['xai', 'openai'].includes(cfg.provider)) return res.json({ models: [] });
+  if (kind !== 'llm' && !['xai', 'openai', 'elevenlabs'].includes(cfg.provider)) return res.json({ models: [] });
+  const elevenlabs = kind !== 'llm' && cfg.provider === 'elevenlabs';
+  // ElevenLabs' catalogue lists synthesis models only, so Scribe is bundled
+  if (elevenlabs && kind === 'stt') {
+    return res.json({ models: eleven.STT_MODELS.map((id) => ({ id, task: 'automatic-speech-recognition' })) });
+  }
+  // A scoped ElevenLabs key without models_read gets the bundled list instead
+  const fallback = elevenlabs ? eleven.bundledTtsModels() : [];
   try {
-    const upstream = await fetch(`${cfg.baseUrl}/models`, { headers: authHeaders(cfg.apiKey), signal: AbortSignal.timeout(8000) });
+    const headers = elevenlabs ? eleven.elevenHeaders(cfg.apiKey) : authHeaders(cfg.apiKey);
+    const upstream = await fetch(`${cfg.baseUrl}/models`, { headers, signal: AbortSignal.timeout(8000) });
     if (!upstream.ok) {
       console.warn(`[assistant/models] ${cfg.baseUrl} answered ${upstream.status}`);
-      return res.json({ models: [] });
+      return res.json({ models: fallback });
     }
     const result = await upstream.json();
-    res.json({ models: Array.isArray(result.data) ? result.data : [] });
+    const models = elevenlabs ? eleven.catalogModels(result) : Array.isArray(result.data) ? result.data : [];
+    res.json({ models: models.length ? models : fallback });
   } catch (error) {
     console.warn(`[assistant/models] no catalogue from ${cfg.baseUrl}: ${error.message}`);
-    res.json({ models: [] });
+    res.json({ models: fallback });
   }
 });
 

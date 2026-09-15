@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { load } = require('./browser-modules.cjs');
+const { fakeClock } = require('./fake-clock.cjs');
 
 const root = path.resolve(__dirname, '..');
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -100,6 +101,7 @@ test('browser speech is busy before onstart and ignores cancelled start events',
   const utterances = [], sentences = [];
   const module = await load('assistant/tts.js', {
     SpeechSynthesisUtterance: class { constructor(text) { this.text = text; } },
+    performance,
     speechSynthesis: { getVoices: () => [], speak: utterance => utterances.push(utterance), cancel() {} },
   });
   const speaker = module.createSpeaker({ ttsProvider: 'browser' }, { onSentence: text => sentences.push(text) });
@@ -117,7 +119,8 @@ test('browser speech is busy before onstart and ignores cancelled start events',
 
 async function pipelineHarness(settings = {}, startup = Promise.resolve()) {
   const calls = [], queued = [], statuses = [], errors = [];
-  let hooks, busy = false, cancels = 0;
+  const expressionInputs = [], expressionEvents = [];
+  let hooks, speakerHooks, busy = false, cancels = 0;
   const speaker = {
     enqueue(text) { queued.push(text); busy = true; },
     cancel() { cancels++; queued.length = 0; busy = false; },
@@ -125,8 +128,11 @@ async function pipelineHarness(settings = {}, startup = Promise.resolve()) {
   };
   const module = await load('assistant/pipeline.js', {}, {
     'assistant/stt.js': { createStt: (_, h) => { hooks = h; return { start: () => startup, stop() {} }; } },
-    'assistant/tts.js': { createSpeaker: () => speaker, cleanForSpeech: text => text },
-    'assistant/automatic-expressions.js': { createAutomaticExpressions: () => ({ setEnabled() {}, transcript() {}, reset() {}, stop() {} }) },
+    'assistant/tts.js': { createSpeaker: (_, h) => { speakerHooks = h; return speaker; }, cleanForSpeech: text => text },
+    'assistant/automatic-expressions.js': { createAutomaticExpressions: () => ({
+      setEnabled() {}, transcript: (text, newTurn) => expressionInputs.push({ text, newTurn }), reset() {}, stop() {},
+      interrupt: () => expressionEvents.push('interrupt'), endReply: () => expressionEvents.push('end'),
+    }) },
     'assistant/llm.js': { streamChat: (messages, options) => {
       const call = { ...deferred(), messages: snapshot(messages), ...options };
       calls.push(call);
@@ -138,8 +144,90 @@ async function pipelineHarness(settings = {}, startup = Promise.resolve()) {
     onText() {}, onSpeaker() {}, onStatus: text => statuses.push(text), onError: err => errors.push(err),
     onEnd: err => ends.push(err),
   });
-  return { assistant, calls, queued, statuses, errors, ends, hooks: () => hooks, cancels: () => cancels };
+  return { assistant, calls, queued, statuses, errors, ends, expressionInputs, expressionEvents,
+    hooks: () => hooks, speakerHooks: () => speakerHooks, cancels: () => cancels };
 }
+
+test('pipeline expressions follow played prefixes across sentences and stop on interruption', async () => {
+  const h = await pipelineHarness(); await h.assistant.start();
+  try {
+    const reply = h.hooks().onUtterance('hello');
+    h.calls[0].onDelta('First sentence. Second sentence.'); h.calls[0].resolve(); await reply;
+    const voice = h.speakerHooks();
+    voice.onSentence('First sentence.');
+    assert.deepEqual(h.expressionInputs, []);
+    voice.onProgress('First'); voice.onProgress('First sentence.');
+    voice.onSentence('Second sentence.'); voice.onProgress('Second');
+    assert.deepEqual(h.expressionInputs, [
+      { text: 'First', newTurn: true }, { text: 'First sentence.', newTurn: false },
+      { text: 'First sentence. Second', newTurn: false },
+    ]);
+    const next = h.hooks().onUtterance('interrupt');
+    assert.ok(h.expressionEvents.includes('interrupt'));
+    h.calls[1].resolve(); await next;
+  } finally { h.assistant.stop(); }
+});
+
+test('buffer speech reports audio-clock progress, freezes on suspension, and cancels stale callbacks', async () => {
+  const clock = fakeClock(), sources = [], heard = [];
+  let context;
+  const module = await load('assistant/tts.js', { ...clock.globals,
+    AudioContext: class {
+      currentTime = 0; state = 'running';
+      constructor() { context = this; }
+      createAnalyser() { return { connect() {} }; }
+      async decodeAudioData() { return { duration: 4 }; }
+      createBufferSource() {
+        const node = { connect() {}, start() { sources.push(this); }, stop() {} }; return node;
+      }
+      close() {}
+    },
+    fetch: async () => ({ ok: true, arrayBuffer: async () => new ArrayBuffer(0) }),
+  });
+  const speaker = module.createSpeaker({}, { onProgress: text => heard.push(text) });
+  try {
+    speaker.enqueue('One two three four'); await tick();
+    clock.advance(1000); assert.deepEqual(heard, []);
+    context.currentTime = 1; clock.advance(80); assert.deepEqual(heard, ['One']);
+    clock.advance(1000); assert.deepEqual(heard, ['One'], 'wall time cannot advance a suspended audio clock');
+    speaker.cancel(); context.currentTime = 4; sources[0].onended(); clock.advance(1000); await tick();
+    assert.deepEqual(heard, ['One'], 'cancel cannot reveal the unplayed remainder');
+    speaker.enqueue('A new sentence'); await tick();
+    context.currentTime = 8; sources[1].onended(); await tick();
+    assert.equal(heard.at(-1), 'A new sentence');
+  } finally { speaker.destroy(); }
+});
+
+test('browser speech uses native word boundaries and never reveals a cancelled remainder', async () => {
+  const clock = fakeClock(), utterances = [], heard = [];
+  const module = await load('assistant/tts.js', { ...clock.globals,
+    SpeechSynthesisUtterance: class { constructor(text) { this.text = text; } },
+    speechSynthesis: { getVoices: () => [], speak: u => utterances.push(u), cancel() {} },
+  });
+  const speaker = module.createSpeaker({ ttsProvider: 'browser' }, { onProgress: text => heard.push(text) });
+  speaker.enqueue('One two three');
+  const utterance = utterances[0]; utterance.onstart(); utterance.onboundary({ charIndex: 0 });
+  clock.advance(2000); assert.deepEqual(heard, []);
+  utterance.onboundary({ charIndex: 4 }); assert.deepEqual(heard, ['One']);
+  speaker.cancel(); utterance.onboundary({ charIndex: 8 }); utterance.onend();
+  assert.deepEqual(heard, ['One']); speaker.destroy();
+});
+
+test('browser voices without boundaries use a clock estimate that pauses with the utterance', async () => {
+  const clock = fakeClock(), utterances = [], heard = [];
+  const module = await load('assistant/tts.js', { ...clock.globals,
+    SpeechSynthesisUtterance: class { constructor(text) { this.text = text; } },
+    speechSynthesis: { getVoices: () => [], speak: u => utterances.push(u), cancel() {} },
+  });
+  const speaker = module.createSpeaker({ ttsProvider: 'browser' }, { onProgress: text => heard.push(text) });
+  try {
+    speaker.enqueue('This is a longer sentence'); utterances[0].onstart();
+    clock.advance(400); assert.equal(heard.at(-1), 'This');
+    utterances[0].onpause(); clock.advance(2000); assert.equal(heard.at(-1), 'This');
+    utterances[0].onresume(); clock.advance(400); assert.equal(heard.at(-1), 'This is a');
+    utterances[0].onend(); assert.equal(heard.at(-1), 'This is a longer sentence');
+  } finally { speaker.destroy(); }
+});
 
 test('a new question cancels audio still synthesizing after the LLM finishes', async () => {
   const h = await pipelineHarness(); await h.assistant.start();
@@ -371,4 +459,23 @@ test('a denied microphone is fatal, not a routine recognition error', async () =
   // Listening is over, so onend must not schedule another restart.
   recognition.onend();
   assert.deepEqual(cancels, []);
+});
+
+test('an ElevenLabs speaker is just the server proxy: the browser needs no provider knowledge', async () => {
+  const calls = [];
+  const module = await load('assistant/tts.js', {
+    AudioContext: class {
+      state = 'running';
+      createAnalyser() { return { connect() {}, fftSize: 512 }; }
+      async decodeAudioData(data) { return data; }
+      createBufferSource() { return { connect() {}, start() {}, stop() {} }; }
+      close() {}
+    },
+    fetch: async (url, options) => { calls.push({ url, body: JSON.parse(options.body) }); return { ok: true, arrayBuffer: async () => 'mp3' }; },
+  });
+  const speaker = module.createSpeaker({ ttsProvider: 'elevenlabs' }, { onSentence() {}, onEnd() {}, onError() {} });
+  speaker.enqueue('Hello');
+  await tick();
+  assert.deepEqual(calls, [{ url: '/api/assistant/tts', body: { text: 'Hello' } }]);
+  speaker.destroy();
 });

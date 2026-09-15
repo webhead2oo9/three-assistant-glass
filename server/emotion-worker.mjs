@@ -12,6 +12,6 @@ parentPort.on('message', async ({ id, text }) => {
       dtype: 'q8', device: 'cpu', session_options: { intraOpNumThreads: 2 },
     });
     const scores = text ? await classifier(text, { top_k: 28, truncation: true, max_length: 128 }) : null;
-    parentPort.postMessage({ id, scores });
+    parentPort.postMessage({ id, result: scores });
   } catch (error) { parentPort.postMessage({ id, error: error.message }); }
 });

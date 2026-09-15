@@ -1,2 +1,4 @@
 node_modules/
 settings.json
+# Trained character expression model (126 MB); copy it from the character-expression-model project, see README.
+models/character-expression/*.onnx

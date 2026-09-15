@@ -1,6 +1,7 @@
 import { createAutomaticExpressions } from './automatic-expressions.js';
 import { codexRequest } from './codex-api.js';
 import { createCodexTaskHandler } from './codex-tasks.js';
+import { spokenPrefix } from './speech-progress.js';
 
 async function finishIceGathering(connection, signal) {
   if (connection.iceGatheringState === 'complete' || signal.aborted) return;
@@ -40,10 +41,38 @@ export function createCodexAssistant(settings, ui) {
   let disconnectTimer = null;
   let speaking = false;
   let lastSound = 0;
+  let expressionText = '', expressionShown = '', expressionDone = false;
+  let expressionSeconds = 0, expressionTick = null, expressionStarted = false;
   const transcripts = new Map();
   let displayedRole = null;
   let tasks = null;
   const onPageHide = () => stop();
+
+  function interruptExpressions() {
+    expressions.interrupt?.();
+    expressionText = expressionShown = ''; expressionDone = false;
+    expressionSeconds = 0; expressionTick = null; expressionStarted = false;
+  }
+
+  // WebRTC supplies no word alignment here. Pace the transcript against
+  // observed output speech, stopping the clock during silence or stalled audio.
+  function advanceExpressions(now, talking) {
+    if (expressionTick !== null && talking && speaking) expressionSeconds += Math.max(0, Math.min(0.1, (now - expressionTick) / 1000));
+    expressionTick = now;
+    if (!expressionText) return;
+    if (talking) {
+      const prefix = spokenPrefix(expressionText, expressionSeconds, 15);
+      if (prefix.length > expressionShown.length) {
+        expressions.transcript(prefix, !expressionStarted);
+        expressionShown = prefix; expressionStarted = true;
+      }
+    } else if (expressionDone && lastSound > 0 && now - lastSound >= 600) {
+      // Keep the heard prefix on interruptions; do not reveal the rest just
+      // because generation finished before playback.
+      expressions.endReply?.();
+      expressionText = ''; expressionTick = null;
+    }
+  }
 
   function milestone(label, run) {
     let resolve, reject;
@@ -67,6 +96,7 @@ export function createCodexAssistant(settings, ui) {
   }
 
   function stop(reason) {
+    interruptExpressions();
     expressions.stop();
     running = false;
     connected = false;
@@ -122,6 +152,7 @@ export function createCodexAssistant(settings, ui) {
       };
       async function connectVoice(action) {
         ensureActive();
+        interruptExpressions(); speaking = false; lastSound = 0;
         const oldPeer = peer;
         peer = null;
         dataChannel?.close();
@@ -250,7 +281,14 @@ export function createCodexAssistant(settings, ui) {
               const text = (done ? message.text : (transcripts.get(message.role) || '') + message.delta).slice(-12000);
               if (done) transcripts.delete(message.role);
               else transcripts.set(message.role, text);
-              if (message.role === 'assistant') expressions.transcript(text, newTurn);
+              if (message.role === 'user' && done) expressions.setContext?.([{ role: 'user', text }]);
+              if (message.role === 'assistant') {
+                // Ignore a late finalization after the user has begun another turn.
+                if (!(done && displayedRole === 'user' && !transcripts.has('assistant'))) {
+                  if (newTurn || !expressionText) interruptExpressions();
+                  expressionText = text; expressionDone = done;
+                }
+              } else if (newTurn && !transcripts.has('assistant')) interruptExpressions();
               // User transcription can arrive after assistant output starts.
               // Finish collecting it without replacing the streaming reply.
               if (message.role === 'user' && transcripts.has('assistant')) break;
@@ -289,8 +327,10 @@ export function createCodexAssistant(settings, ui) {
       let sum = 0;
       for (const sample of samples) sum += ((sample - 128) / 128) ** 2;
       const level = Math.min(1, Math.sqrt(sum / samples.length) * 4);
-      if (level > 0.04) lastSound = performance.now();
-      const talking = lastSound > 0 && performance.now() - lastSound < 250;
+      const now = performance.now();
+      if (level > 0.04) lastSound = now;
+      const talking = lastSound > 0 && now - lastSound < 250;
+      advanceExpressions(now, talking);
       if (talking !== speaking) {
         speaking = talking;
         ui.onStatus(talking ? 'Speaking…' : 'Listening…');

@@ -935,7 +935,9 @@ async function startCustomAssistant(session) {
     onStatus: setAssistantStatus,
     getExpressions: () => characterExpressions.supported(),
     onExpression: command => characterExpressions.apply(command),
+    onExpressionWeights: face => characterExpressions.applyWeights(face, Number(settings.expressionGain) || 1),
     onExpressionReset: () => characterExpressions.reset(),
+    onExpressionSettle: seconds => characterExpressions.settle(seconds),
     onExpressionStatus: text => { document.getElementById('expressionStatus').textContent = text; },
     onError: (error) => {
       console.error('[assistant]', error);

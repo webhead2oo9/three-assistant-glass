@@ -388,9 +388,26 @@
                     <span class="row-label">Automatic expressions <span class="field-note">Experimental</span></span>
                     <span class="row-control">
                         <input type="checkbox" id="llmAutoExpressions" class="assistant-toggle"><span class="slider"></span>
-                        <span class="hint assistant-hint">Estimate facial expressions from the character’s English replies as they are spoken. Runs locally; first use downloads a roughly 125 MB model. Voice continues while it loads.</span>
+                        <span class="hint assistant-hint">Estimate facial expressions from the character’s English replies as they are spoken. Runs locally with the expression model chosen below. Voice continues while it loads.</span>
                     </span>
                 </label>
+                <div class="row">
+                    <label class="row-label" for="expressionModel">Expression model <span class="field-note">All assistants</span></label>
+                    <div class="row-control">
+                        <select id="expressionModel" class="assistant-select">
+                            <option value="character">Character model</option>
+                            <option value="goemotions">GoEmotions classifier</option>
+                        </select>
+                        <span class="hint assistant-hint">The character model was trained for this face: it reads the reply as it streams and sets up to two expression channels at once. It ships in models/character-expression and needs no download. GoEmotions is the original 28-label classifier, downloaded on first use.</span>
+                    </div>
+                </div>
+                <div class="row">
+                    <label class="row-label" for="expressionGain">Expression strength <span class="field-note">Character model</span></label>
+                    <div class="row-control">
+                        <input type="number" id="expressionGain" min="0.5" max="3" step="0.1" placeholder="1" class="rounded-input assistant-field">
+                        <span class="hint assistant-hint">Multiplies the model's intensities before they reach the face. The model keeps expressions subtle (0.15 to 0.45); try 1.5 to 2 if this character's blendshapes read faintly.</span>
+                    </div>
+                </div>
             </section>
 
             <section class="group realtime-only">
@@ -468,9 +485,11 @@
                         <select id="sttProvider" class="assistant-select">
                             <option value="xai">xAI</option>
                             <option value="openai">OpenAI-compatible (Whisper)</option>
+                            <option value="elevenlabs">ElevenLabs (Scribe)</option>
                             <option value="browser">Browser (Chrome, no key)</option>
                         </select>
                         <p class="hint assistant-hint stt-browser-only" hidden>Uses Chrome's built-in recognition, so audio is sent to Google. Zero setup, no key.</p>
+                        <p class="hint assistant-hint stt-elevenlabs-only" hidden>Needs its own key from <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noopener">elevenlabs.io</a>; the language model key is not used here.</p>
                     </div>
                 </div>
                 <div class="stt-server-only">
@@ -491,7 +510,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="stt-openai-only">
+                    <div class="stt-model-only">
                         <div class="row">
                             <label class="row-label" for="sttModel">Model</label>
                             <div class="row-control">
@@ -511,10 +530,12 @@
                         <select id="ttsProvider" class="assistant-select">
                             <option value="xai">xAI</option>
                             <option value="openai">OpenAI-compatible</option>
+                            <option value="elevenlabs">ElevenLabs</option>
                             <option value="kokoro">Kokoro in the browser (free, offline)</option>
                             <option value="browser">Browser voices (OS)</option>
                         </select>
                         <p class="hint assistant-hint tts-kokoro-only" hidden>Runs locally on your GPU or CPU. Downloads a 90 to 330 MB model on first use, then works offline.</p>
+                        <p class="hint assistant-hint tts-elevenlabs-only" hidden>Needs its own key from <a href="https://elevenlabs.io/app/settings/api-keys" target="_blank" rel="noopener">elevenlabs.io</a>; the language model key is not used here.</p>
                     </div>
                 </div>
                 <div class="tts-server-only">
@@ -535,7 +556,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="tts-openai-only">
+                    <div class="tts-model-only">
                         <div class="row">
                             <label class="row-label" for="ttsModel">Model</label>
                             <div class="row-control">
@@ -550,10 +571,11 @@
                     <div class="row-control">
                         <input type="text" id="ttsVoice" list="ttsVoiceOptions" placeholder="eve" class="rounded-input assistant-field" autocomplete="off">
                         <datalist id="ttsVoiceOptions"></datalist>
+                        <p class="hint assistant-hint tts-elevenlabs-only" hidden>ElevenLabs voices are picked by id; the list comes from your account once the key is saved. Leave it blank for the first premade voice.</p>
                     </div>
                 </div>
                 <div class="row">
-                    <label class="row-label" for="ttsSpeed">Speed <span class="field-note">0.7 to 1.5</span></label>
+                    <label class="row-label" for="ttsSpeed">Speed <span class="field-note" id="ttsSpeedRange">0.7 to 1.5</span></label>
                     <div class="row-control">
                         <input type="text" id="ttsSpeed" inputmode="decimal" placeholder="1.0" class="rounded-input assistant-field">
                     </div>

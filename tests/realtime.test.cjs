@@ -1,6 +1,7 @@
 const { test, afterEach } = require('node:test');
 const assert = require('node:assert/strict');
 const { load } = require('./browser-modules.cjs');
+const { fakeClock } = require('./fake-clock.cjs');
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const tick = () => new Promise((resolve) => setImmediate(resolve));
@@ -14,7 +15,7 @@ function frame(amplitude) {
   return pcm.buffer;
 }
 
-async function harness(settings = {}) {
+async function harness(settings = {}, clock = null) {
   const pcm = await load('assistant/realtime-audio.js', { atob, btoa });
   const sockets = [];
   class WebSocket {
@@ -45,6 +46,7 @@ async function harness(settings = {}) {
     pcmLevel: pcm.pcmLevel,
   };
   const ui = { texts: [], speakers: [], statuses: [], errors: [] };
+  const expressionInputs = [], expressionEvents = [];
   Object.assign(ui, {
     onText: (t) => ui.texts.push(t),
     onSpeaker: (s) => ui.speakers.push(s),
@@ -53,13 +55,17 @@ async function harness(settings = {}) {
   });
   const module = await load('assistant/realtime.js', {
     WebSocket, setInterval, clearInterval, location: { protocol: 'http:', host: 'localhost:3000' },
+    ...clock?.globals,
   }, {
     'assistant/realtime-audio.js': fakeAudio,
-    'assistant/automatic-expressions.js': { createAutomaticExpressions: () => ({ async setEnabled() {}, transcript() {}, reset() {}, stop() {} }) },
+    'assistant/automatic-expressions.js': { createAutomaticExpressions: () => ({
+      async setEnabled() {}, transcript: (text, newTurn) => expressionInputs.push({ text, newTurn }), reset() {}, stop() {},
+      interrupt: () => expressionEvents.push('interrupt'), endReply: () => expressionEvents.push('end'),
+    }) },
   });
   const assistant = module.createRealtimeAssistant({ llmFirstMessage: 'Hi there!', ...settings }, ui);
   assistants.push(assistant);
-  return { assistant, sockets, audio, ui, module, module_pcm: pcm };
+  return { assistant, sockets, audio, ui, expressionInputs, expressionEvents, module, module_pcm: pcm };
 }
 
 async function started(h) {
@@ -259,7 +265,8 @@ test('GPT-Live: hands over the transcript on open, starts on session.started, sk
 });
 
 test('GPT-Live: a reply is inferred from the flow of output and ends after a gap, the transcript is kept, and a reconnect starts from it', async () => {
-  const h = await harness({ realtimeProvider: 'live', llmFirstMessage: '', realtimeIdleSeconds: 0.3 });
+  const clock = fakeClock();
+  const h = await harness({ realtimeProvider: 'live', llmFirstMessage: '', realtimeIdleSeconds: 0.3 }, clock);
   const starting = h.assistant.start();
   await tick();
   const socket = h.sockets[0];
@@ -269,7 +276,7 @@ test('GPT-Live: a reply is inferred from the flow of output and ends after a gap
 
   socket.receive({ type: 'session.input_transcript.delta', delta: 'What time ', start_ms: 0, end_ms: 500 });
   socket.receive({ type: 'session.input_transcript.delta', delta: 'is it?', start_ms: 500, end_ms: 900 });
-  await sleep(100);
+  clock.advance(100);
   assert.equal(h.ui.texts.at(-1), 'What time is it?');
   assert.equal(h.ui.speakers.at(-1), 'User');
 
@@ -286,21 +293,22 @@ test('GPT-Live: a reply is inferred from the flow of output and ends after a gap
   // A backchannel while the character talks does not replace the caption
   socket.receive({ type: 'session.input_transcript.delta', delta: 'mm-hm', start_ms: 2500, end_ms: 2700 });
   h.audio.playedSeconds = 2; // the silent second, then one second of the reply
-  await sleep(SETTLE_MS);
+  clock.advance(SETTLE_MS);
   assert.equal(h.ui.texts.at(-1), 'It is noon.');
   // Output resumes after the user spoke: a new reply, not a continuation
   socket.receive({ type: 'session.output_audio.delta', delta: voice });
   socket.receive({ type: 'session.output_transcript.delta', delta: 'Anything else?', start_ms: 3100, end_ms: 3800 });
   h.audio.playedSeconds = 4;
-  await sleep(SETTLE_MS);
+  clock.advance(SETTLE_MS);
   assert.equal(h.ui.texts.at(-1), 'Anything else?');
   h.audio.playing = 0;
   h.audio.hooks.onPlaybackEnd();
   assert.equal(h.ui.statuses.at(-1), 'Speaking…'); // output may still be coming
-  await sleep(2100);                                // …but it has stopped: the reply is over
+  clock.advance(1800);                              // exactly two seconds since the last transcript
   assert.equal(h.ui.statuses.at(-1), 'Listening…');
+  assert.equal(h.expressionEvents.filter(e => e === 'end').length, 1);
 
-  await sleep(350);                                 // idle → hang up
+  clock.advance(350);                               // idle → hang up
   assert.equal(socket.closed, 1000);
   for (let i = 0; i < 5; i++) h.audio.hooks.onChunk(frame(8000));
   const resumed = h.sockets[1];
@@ -316,4 +324,39 @@ test('GPT-Live: a reply is inferred from the flow of output and ends after a gap
   assert.ok(resumed.sent.slice(1).every((f) => f.type === 'session.input_audio.append'));
   assert.equal(h.ui.statuses.at(-1), 'Listening…');
   h.assistant.stop();
+});
+
+test('realtime expressions wait for playback and a barge-in discards the unspoken remainder', async () => {
+  const clock = fakeClock();
+  const h = await harness({ realtimeProvider: 'openai', llmFirstMessage: '' }, clock);
+  const socket = await started(h);
+  socket.receive({ type: 'response.created' });
+  socket.receive({ type: 'response.output_audio_transcript.delta', delta: 'That is wonderful news, but this next part is sad.' });
+  clock.advance(1000);
+  assert.deepEqual(h.expressionInputs, []);
+  socket.receive({ type: 'response.output_audio.delta', delta: 'audio' });
+  h.audio.playedSeconds = 0.4; clock.advance(160);
+  assert.equal(h.expressionInputs[0].text, 'That');
+  assert.equal(h.expressionInputs[0].newTurn, true);
+  const before = h.expressionEvents.length;
+  socket.receive({ type: 'input_audio_buffer.speech_started' });
+  assert.equal(h.expressionEvents[before], 'interrupt');
+  socket.receive({ type: 'response.done' });
+  h.audio.playedSeconds = 10; clock.advance(3000);
+  assert.equal(h.expressionInputs.length, 1);
+  assert.ok(!h.expressionEvents.includes('end'), 'an interrupted reply cannot later finish');
+});
+
+test('realtime reply settling waits for queued audio and includes the last heard word', async () => {
+  const clock = fakeClock();
+  const h = await harness({ realtimeProvider: 'openai', llmFirstMessage: '' }, clock);
+  const socket = await started(h);
+  socket.receive({ type: 'response.created' });
+  socket.receive({ type: 'response.output_audio.delta', delta: 'audio' });
+  socket.receive({ type: 'response.output_audio_transcript.delta', delta: 'I am delighted.' });
+  socket.receive({ type: 'response.done' });
+  clock.advance(1000); assert.ok(!h.expressionEvents.includes('end'));
+  h.audio.playedSeconds = 1; h.audio.playing = 0; h.audio.hooks.onPlaybackEnd();
+  assert.equal(h.expressionInputs.at(-1).text, 'I am delighted.');
+  assert.equal(h.expressionEvents.at(-1), 'end');
 });

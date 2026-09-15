@@ -44,3 +44,43 @@ test('VRM 0 custom surprise is exposed as the standard surprised emotion', async
   assert.ok(values.Surprised > 0.7);
   face.reset(); assert.equal(values.Surprised, 0);
 });
+
+test('a weighted face drives two channels at once and an empty face returns to neutral', async () => {
+  const { createExpressionController } = await load('assistant/expressions.js');
+  const values = {}, face = createExpressionController();
+  face.bind({ getExpression: n => ['happy', 'sad', 'relaxed'].includes(n), setValue: (n, v) => values[n] = v });
+  assert.equal(JSON.stringify(face.applyWeights({ sad: 0.4, relaxed: 0.15, surprised: 0.3 }).weights), JSON.stringify({ sad: 0.4, relaxed: 0.15 }));
+  for (let i = 0; i < 40; i++) face.update(0.1);
+  assert.ok(Math.abs(values.sad - 0.4) < 0.001 && Math.abs(values.relaxed - 0.15) < 0.001);
+  assert.equal(values.surprised, undefined);
+  face.applyWeights({ happy: 0.45 });
+  for (let i = 0; i < 40; i++) face.update(0.1);
+  assert.equal(values.sad, 0); assert.equal(values.relaxed, 0); assert.ok(Math.abs(values.happy - 0.45) < 0.001);
+  face.applyWeights({});
+  for (let i = 0; i < 40; i++) face.update(0.1);
+  assert.equal(values.happy, 0);
+});
+
+test('expression gain scales a weighted face and caps at one', async () => {
+  const { createExpressionController } = await load('assistant/expressions.js');
+  const values = {}, face = createExpressionController();
+  face.bind({ getExpression: n => ['happy'].includes(n), setValue: (n, v) => values[n] = v });
+  assert.equal(JSON.stringify(face.applyWeights({ happy: 0.3 }, 2).weights), JSON.stringify({ happy: 0.6 }));
+  assert.equal(JSON.stringify(face.applyWeights({ happy: 0.6 }, 2).weights), JSON.stringify({ happy: 1 }));
+  assert.equal(JSON.stringify(face.applyWeights({ happy: 0.3 }, NaN).weights), JSON.stringify({ happy: 0.3 }));
+});
+
+test('settling eases from the rendered face to neutral and a new expression cancels it', async () => {
+  const { createExpressionController } = await load('assistant/expressions.js');
+  const values = { aa: 0.5, blink: 0.7 }, face = createExpressionController();
+  face.bind({ getExpression: n => ['happy', 'sad'].includes(n), setValue: (n, v) => values[n] = v });
+  face.applyWeights({ happy: 0.4 }, 2); face.update(10);
+  face.settle(1.5); face.update(0.75);
+  assert.ok(Math.abs(values.happy - 0.4) < 0.001);
+  face.update(0.75); assert.equal(values.happy, 0);
+  assert.equal(values.aa, 0.5); assert.equal(values.blink, 0.7);
+  face.applyWeights({ happy: 0.4 }); face.update(10);
+  face.settle(1.5); face.update(0.5);
+  face.applyWeights({ sad: 0.45 }); face.update(10);
+  assert.equal(values.happy, 0); assert.ok(Math.abs(values.sad - 0.45) < 0.001);
+});

@@ -12,6 +12,7 @@ function deferred() {
 async function harness({ permission, allocation, answer = true, answerSdp = 'v=0\r\nserver-answer', gathering = false } = {}) {
   const requests = [], sources = [], peers = [], audios = [], contexts = [], ends = [], statuses = [], texts = [], speakers = [];
   const listeners = new Map(), taskHandlers = [], expressionInputs = [];
+  const meter = { now: 1000, amplitude: 144 }, expressionEvents = [];
   const micTrack = { stopped: false, stop() { this.stopped = true; } };
   const mic = { getTracks: () => [micTrack], getAudioTracks: () => [micTrack] };
   let sessionCounter = 0;
@@ -51,7 +52,7 @@ async function harness({ permission, allocation, answer = true, answerSdp = 'v=0
     constructor() { contexts.push(this); }
     async resume() {}
     async close() { this.closed = true; }
-    createAnalyser() { return { fftSize: 512, getByteTimeDomainData: samples => samples.fill(144) }; }
+    createAnalyser() { return { fftSize: 512, getByteTimeDomainData: samples => samples.fill(meter.amplitude) }; }
     createMediaStreamSource() { return { connect() {}, disconnect() {} }; }
   }
   const api = async (url, body, options) => {
@@ -65,7 +66,7 @@ async function harness({ permission, allocation, answer = true, answerSdp = 'v=0
     window: { addEventListener: (name, fn) => listeners.set(name, fn), removeEventListener: name => listeners.delete(name) },
     navigator: { mediaDevices: { getUserMedia: () => permission ? permission.promise : Promise.resolve(mic) } },
     AudioContext, RTCPeerConnection: Peer, EventSource: Events,
-    performance: { now: () => 1000 },
+    performance: { now: () => meter.now },
     document: { createElement: () => {
       const audio = { play: async () => { audio.played = true; }, pause() { this.paused = true; } };
       audios.push(audio); return audio;
@@ -73,6 +74,7 @@ async function harness({ permission, allocation, answer = true, answerSdp = 'v=0
   }, { 'assistant/codex-api.js': { codexRequest: api },
     'assistant/automatic-expressions.js': { createAutomaticExpressions: () => ({
       setEnabled() {}, stop() {}, reset() {}, transcript: (text, newTurn) => expressionInputs.push({ text, newTurn }),
+      interrupt: () => expressionEvents.push('interrupt'), endReply: () => expressionEvents.push('end'),
     }) },
     'assistant/codex-tasks.js': { createCodexTaskHandler: id => {
       const handler = { id, messages: [], handle(message) {
@@ -86,7 +88,7 @@ async function harness({ permission, allocation, answer = true, answerSdp = 'v=0
     onStatus: text => statuses.push(text), onText: text => texts.push(text),
     onSpeaker: speaker => speakers.push(speaker), onEnd: error => ends.push(error), onError() {},
   });
-  return { assistant, requests, sources, peers, audios, contexts, ends, statuses, texts, speakers, mic, micTrack, listeners, taskHandlers, expressionInputs };
+  return { assistant, requests, sources, peers, audios, contexts, ends, statuses, texts, speakers, mic, micTrack, listeners, taskHandlers, expressionInputs, expressionEvents, meter };
 }
 
 test('browser negotiates WebRTC, plays remote audio, displays transcripts and animates speech', async () => {
@@ -267,15 +269,24 @@ test('page exit stops the server session and old callbacks cannot stop a restart
 });
 
 
-test('automatic expressions receive assistant transcripts only, without delegating a task', async () => {
+test('automatic expressions follow observed output speech, without delegating a task', async () => {
   const h = await harness(); await h.assistant.start();
   const count = h.requests.length;
   h.sources[0].emit('thread/realtime/transcript/done', { role: 'user', text: 'I am really angry.' });
   h.sources[0].emit('codex/task/output', { itemId: 'task', text: 'Sad text in a search result.' });
   assert.equal(h.expressionInputs.length, 0);
   h.sources[0].emit('thread/realtime/transcript/delta', { role: 'assistant', delta: 'That is wonderful news!' });
-  assert.equal(h.expressionInputs.length, 1);
+  assert.equal(h.expressionInputs.length, 0);
+  for (let i = 0; i < 10; i++) { h.meter.now += 100; h.assistant.mouthLevel(); }
+  assert.ok(h.expressionInputs.length > 0);
   assert.equal(h.expressionInputs[0].newTurn, true);
+  assert.ok(h.expressionInputs.at(-1).text.length < 'That is wonderful news!'.length);
   assert.equal(h.requests.length, count);
+  h.sources[0].emit('thread/realtime/transcript/done', { role: 'assistant', text: 'That is wonderful news!' });
+  h.meter.amplitude = 128;
+  for (let i = 0; i < 10; i++) { h.meter.now += 100; h.assistant.mouthLevel(); }
+  assert.equal(h.expressionEvents.at(-1), 'end');
+  h.sources[0].emit('thread/realtime/transcript/delta', { role: 'user', delta: 'Next question' });
+  assert.equal(h.expressionEvents.at(-1), 'interrupt');
   h.assistant.stop();
 });
